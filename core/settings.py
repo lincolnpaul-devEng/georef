@@ -132,6 +132,11 @@ STATICFILES_DIRS = []
 
 MEDIA_URL = '/media/'
 
+if os.environ.get('VERCEL') == '1' or not os.access(BASE_DIR, os.W_OK):
+    MEDIA_ROOT = Path('/tmp') / 'media'
+else:
+    MEDIA_ROOT = BASE_DIR / 'media'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # OpenRouter AI Vision Configuration (Gemini 2.5 Flash)
