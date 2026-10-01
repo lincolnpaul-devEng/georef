@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,8 +11,18 @@
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet">
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <style>
+        body {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+        }
+        .navbar {
+            background-color: #0f172a !important;
+            border-bottom: 1px solid #475569 !important;
+        }
+    </style>
 </head>
-<body>
+<body class="bg-dark text-white">
 
     <!-- Header Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
