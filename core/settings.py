@@ -77,9 +77,19 @@ TEMPLATES = [
 ]
 
 # Database Configuration (PostgreSQL / Supabase or SQLite)
+import sys
+IS_TESTING = 'test' in sys.argv
+
 DATABASE_URL = os.getenv('DATABASE_URL', '')
 
-if DATABASE_URL:
+if IS_TESTING:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+elif DATABASE_URL:
     try:
         import dj_database_url
         DATABASES = {
