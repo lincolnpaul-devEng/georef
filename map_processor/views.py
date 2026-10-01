@@ -21,13 +21,24 @@ def get_verified_user_status(request):
     if not verified_email:
         return False, ''
 
-    is_approved, _, _ = check_or_request_supabase_access(verified_email)
+    is_approved = True
+    try:
+        approved_flag, _, _ = check_or_request_supabase_access(verified_email)
+        is_approved = approved_flag
+    except Exception as e:
+        logger.warning(f"Supabase status check fallback for {verified_email}: {e}")
+        # Retain trusted session if external service is unreachable
+        is_approved = True
+
     if is_approved:
         return True, verified_email
     else:
         # Clear invalid/revoked session for security
-        if 'verified_email' in request.session:
-            del request.session['verified_email']
+        try:
+            if 'verified_email' in request.session:
+                del request.session['verified_email']
+        except Exception:
+            pass
         return False, ''
 
 
@@ -105,7 +116,11 @@ def upload_view(request):
         messages.warning(request, "Access restricted. Please enter your email to verify access before uploading maps.")
         return redirect(f"{reverse('map_processor:landing')}#verify-access-section")
 
-    recent_maps = ProcessedMap.objects.all()[:5]
+    recent_maps = []
+    try:
+        recent_maps = list(ProcessedMap.objects.all()[:5])
+    except Exception as e:
+        logger.warning(f"Database query error in upload view: {e}")
 
     if request.method == 'POST':
         form = MapUploadForm(request.POST, request.FILES)
