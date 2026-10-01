@@ -133,6 +133,41 @@ def upload_view(request):
     })
 
 
+class DemoMapMock:
+    id = 0
+    is_real = False
+    title = "Kisumu Topographic Sheet 116/2 (Survey of Kenya)"
+    status = "SUCCESS"
+    datum = "ARC1960"
+    utm_zone = 36
+    hemisphere = "S"
+    display_url = ""
+    original_image = None
+    extracted_data = {
+        "title": "East Africa 1:50,000 (Kenya) - Sheet 116/2 (Kisumu)",
+        "scale": "1:50,000",
+        "datum": "Arc 1960",
+        "utm_zone": "36S",
+        "series": "DOS 423 (Series Y731)"
+    }
+    transformed_data = {
+        "center": [-0.0917, 34.7680],
+        "leaflet_bounds": [[-0.25, 34.60], [0.05, 34.95]],
+        "datum_used": "Arc 1960",
+        "utm_zone_used": "36",
+        "hemisphere_used": "S",
+        "ground_control_points": [
+            {"label": "GCP-1 (NW Neatline)", "lat": 0.0500, "lng": 34.6000, "easting": "678000 m E", "northing": "10005500 m N"},
+            {"label": "GCP-2 (NE Neatline)", "lat": 0.0500, "lng": 34.9500, "easting": "717000 m E", "northing": "10005500 m N"},
+            {"label": "GCP-3 (SE Neatline)", "lat": -0.2500, "lng": 34.9500, "easting": "717000 m E", "northing": "9972300 m N"},
+            {"label": "GCP-4 (SW Neatline)", "lat": -0.2500, "lng": 34.6000, "easting": "678000 m E", "northing": "9972300 m N"},
+            {"label": "GCP-5 (Kisumu Port / CBD)", "lat": -0.0917, "lng": 34.7680, "easting": "696720 m E", "northing": "9989850 m N"}
+        ]
+    }
+    def is_pdf(self):
+        return False
+
+
 def dashboard_view(request, map_id=None):
     """
     Renders the modern interactive Mapbox GL JS display
@@ -142,26 +177,28 @@ def dashboard_view(request, map_id=None):
     is_verified, verified_email = get_verified_user_status(request)
     is_demo_mode = not is_verified
 
-    if map_id:
-        processed_map = get_object_or_404(ProcessedMap, id=map_id)
-    else:
-        processed_map = ProcessedMap.objects.first()
-        if not processed_map:
-            if is_verified:
-                messages.info(request, "Please upload a map first to view the dashboard.")
-                return redirect('map_processor:upload')
-            else:
-                messages.info(request, "No demo maps available yet. Please verify your access to upload.")
-                return redirect('map_processor:landing')
+    processed_map = None
+    recent_maps = []
 
-    recent_maps = ProcessedMap.objects.all()[:10]
+    try:
+        if map_id and str(map_id).isdigit():
+            processed_map = ProcessedMap.objects.filter(id=map_id).first()
+        elif not map_id:
+            processed_map = ProcessedMap.objects.first()
+        recent_maps = list(ProcessedMap.objects.all()[:10])
+    except Exception as e:
+        logger.warning(f"Database query error in dashboard: {e}")
+
+    # If no map in database, provide the interactive Kisumu Demo Sheet
+    if not processed_map:
+        processed_map = DemoMapMock()
 
     # Prepare JSON serializable map data for the frontend JS
     map_json_data = {
         'id': processed_map.id,
         'title': processed_map.title,
         'status': processed_map.status,
-        'image_url': processed_map.display_url,
+        'image_url': getattr(processed_map, 'display_url', '') or '',
         'is_pdf': processed_map.is_pdf(),
         'datum': processed_map.datum,
         'utm_zone': processed_map.utm_zone,
@@ -220,6 +257,16 @@ def map_api_view(request, map_id):
     """
     API endpoint providing GeoJSON and bounds data for client side apps.
     """
+    if map_id == 0 or str(map_id) == '0' or str(map_id).lower() == 'demo':
+        demo = DemoMapMock()
+        return JsonResponse({
+            'id': demo.id,
+            'title': demo.title,
+            'status': demo.status,
+            'extracted_data': demo.extracted_data,
+            'transformed_data': demo.transformed_data,
+        })
+
     map_obj = get_object_or_404(ProcessedMap, id=map_id)
     return JsonResponse({
         'id': map_obj.id,

@@ -45,6 +45,8 @@ CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_TRUSTED_ORIGINS = [
     'https://*.vercel.app',
+    'https://*.tedoraltd.com',
+    'https://georef.tedoraltd.com',
     'http://127.0.0.1:8000',
     'http://localhost:8000',
     'http://127.0.0.1',
@@ -74,10 +76,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
+# Serverless environment SQLite path (/tmp is writable on Vercel)
+if os.environ.get('VERCEL') == '1' or not os.access(BASE_DIR, os.W_OK):
+    DB_PATH = Path('/tmp') / 'db.sqlite3'
+    MEDIA_ROOT = Path('/tmp') / 'media'
+else:
+    DB_PATH = BASE_DIR / 'db.sqlite3'
+    MEDIA_ROOT = BASE_DIR / 'media'
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': DB_PATH,
     }
 }
 

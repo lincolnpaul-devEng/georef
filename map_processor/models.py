@@ -92,5 +92,9 @@ class ProcessedMap(models.Model):
     def is_pdf(self):
         return self.original_image.name.lower().endswith('.pdf') if self.original_image else False
 
+    @property
+    def is_real(self):
+        return True
+
     def __str__(self):
         return f"{self.title or self.original_image.name} ({self.status}) - {self.created_at.strftime('%Y-%m-%d %H:%M')}"

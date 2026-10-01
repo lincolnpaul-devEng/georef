@@ -23,7 +23,11 @@
                     <span class="text-white fw-bold">georef</span><span class="text-primary">.ai</span>
                 </a>
                 
-                <span class="badge bg-secondary d-none d-md-inline-block">Map #{{ processed_map.id }}</span>
+                {% if processed_map.is_real %}
+                    <span class="badge bg-secondary d-none d-md-inline-block">Map #{{ processed_map.id }}</span>
+                {% else %}
+                    <span class="badge bg-secondary d-none d-md-inline-block">Sample Demo Sheet</span>
+                {% endif %}
                 {% if processed_map.status == 'SUCCESS' %}
                     <span class="badge badge-status-success"><i class="bi bi-check-circle me-1"></i> Georeferenced</span>
                 {% elif processed_map.status == 'PROCESSING' %}
@@ -32,7 +36,7 @@
                     <span class="badge badge-status-failed"><i class="bi bi-exclamation-triangle me-1"></i> Failed</span>
                 {% endif %}
 
-                {% if is_demo_mode %}
+                {% if is_demo_mode or not processed_map.is_real %}
                     <span class="demo-pill-badge d-none d-sm-inline-flex">
                         <i class="bi bi-eye-fill"></i> Demo Preview
                     </span>
@@ -233,7 +237,7 @@
 
                             <!-- Actions Footer -->
                             <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-secondary border-opacity-50">
-                                {% if is_verified %}
+                                {% if is_verified and processed_map.is_real %}
                                     <a href="{% url 'map_processor:reprocess' processed_map.id %}" class="btn btn-sm btn-outline-warning">
                                         <i class="bi bi-arrow-clockwise me-1"></i> Reprocess
                                     </a>
@@ -242,9 +246,15 @@
                                         <i class="bi bi-lock-fill me-1"></i> Reprocess (Locked)
                                     </a>
                                 {% endif %}
-                                <a href="{% url 'map_processor:map_api' processed_map.id %}" target="_blank" class="btn btn-sm btn-outline-info">
-                                    <i class="bi bi-code-slash me-1"></i> GeoJSON API
-                                </a>
+                                {% if processed_map.is_real %}
+                                    <a href="{% url 'map_processor:map_api' processed_map.id %}" target="_blank" class="btn btn-sm btn-outline-info">
+                                        <i class="bi bi-code-slash me-1"></i> GeoJSON API
+                                    </a>
+                                {% else %}
+                                    <a href="{% url 'map_processor:map_api' 0 %}" target="_blank" class="btn btn-sm btn-outline-info">
+                                        <i class="bi bi-code-slash me-1"></i> GeoJSON API (Demo)
+                                    </a>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
