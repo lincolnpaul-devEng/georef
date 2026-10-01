@@ -208,24 +208,28 @@ document.addEventListener("DOMContentLoaded", function () {
         `;
 
         const popupHTML = `
-          <div style="font-family: inherit; font-size: 13px; line-height: 1.5; min-width: 220px;">
-            <div style="font-weight: 700; color: #00f0ff; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
-              <i class="bi bi-crosshair text-primary"></i> ${gcp.label || 'Control Point #' + (index + 1)}
+          <div class="gmap-tooltip-container">
+            <div class="gmap-tooltip-header">
+              <i class="bi bi-geo-alt-fill gmap-pin-icon"></i>
+              <h6 class="gmap-tooltip-title">${gcp.label || 'Control Point #' + (index + 1)}</h6>
             </div>
-            <div style="color: #e2e8f0; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px;">
-              <div><strong>GPS Lat:</strong> <span class="text-info">${gcp.lat.toFixed(6)}°</span></div>
-              <div><strong>GPS Lng:</strong> <span class="text-info">${gcp.lng.toFixed(6)}°</span></div>
-              ${gcp.easting ? `<div><strong>Easting:</strong> ${gcp.easting}</div>` : ''}
-              ${gcp.northing ? `<div><strong>Northing:</strong> ${gcp.northing}</div>` : ''}
-              ${gcp.self_corrected ? `<div class="badge bg-success mt-1"><i class="bi bi-shield-check"></i> Self-Corrected</div>` : ''}
+            <div class="gmap-tooltip-subtitle">Georeferenced Ground Control Point</div>
+            <div class="gmap-badge-row">
+              ${gcp.self_corrected ? '<span class="gmap-badge success"><i class="bi bi-patch-check-fill"></i> Self-Corrected</span>' : '<span class="gmap-badge"><i class="bi bi-check2-circle"></i> Verified</span>'}
+              ${gcp.easting ? '<span class="gmap-badge warning"><i class="bi bi-compass"></i> UTM Grid</span>' : ''}
             </div>
-            <button class="btn btn-sm btn-primary mt-2 py-1 px-2 w-100 fw-semibold" style="font-size: 11px;" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">
-              <i class="bi bi-camera-video me-1"></i> Cinematic Fly To
+            <div class="gmap-coords-box">
+              <div><strong>GPS Lat:</strong> ${gcp.lat.toFixed(6)}°</div>
+              <div><strong>GPS Lng:</strong> ${gcp.lng.toFixed(6)}°</div>
+              ${gcp.easting && gcp.northing ? `<div><strong>Grid:</strong> ${Math.round(gcp.easting)}E, ${Math.round(gcp.northing)}N</div>` : ''}
+            </div>
+            <button class="gmap-btn-primary" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">
+              <i class="bi bi-camera-video-fill"></i> Cinematic Fly To
             </button>
           </div>
         `;
 
-        const popup = new mapboxgl.Popup({ offset: 15, closeButton: true })
+        const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
           .setHTML(popupHTML);
 
         const marker = new mapboxgl.Marker({ element: markerEl, anchor: "center" })
@@ -250,10 +254,11 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   };
 
-  // 6. Interactive Parcel Hover Tooltip
+  // 6. Interactive Parcel Hover Tooltip (Google Maps style)
   const hoverPopup = new mapboxgl.Popup({
     closeButton: false,
-    closeOnClick: false
+    closeOnClick: false,
+    offset: 12
   });
 
   map.on("mousemove", "georef-cadastral-fill", function (e) {
@@ -262,10 +267,16 @@ document.addEventListener("DOMContentLoaded", function () {
       const feat = e.features[0];
       const props = feat.properties;
       const html = `
-        <div style="font-size: 12px; font-weight: 600; color: #fff;">
-          <i class="bi bi-bounding-box text-success me-1"></i> ${props.parcel_id || 'Cadastral Parcel'}<br/>
-          <span class="text-muted small">${props.section || 'Survey Section'}</span><br/>
-          <span class="text-warning small"><i class="bi bi-rulers"></i> ${props.area_acres || '0.5'} Acres</span>
+        <div class="gmap-tooltip-container" style="min-width: 170px;">
+          <div class="gmap-tooltip-header">
+            <i class="bi bi-geo-alt-fill text-danger" style="font-size: 15px;"></i>
+            <h6 class="gmap-tooltip-title">${props.parcel_id || 'Cadastral Parcel'}</h6>
+          </div>
+          <div class="gmap-tooltip-subtitle mb-2">${props.section || 'Cadastral Block'}</div>
+          <div class="gmap-badge-row mb-0">
+            <span class="gmap-badge success"><i class="bi bi-rulers"></i> ${props.area_acres || '0.5'} Acres</span>
+            <span class="gmap-badge"><i class="bi bi-layers"></i> Cadastral</span>
+          </div>
         </div>
       `;
       hoverPopup.setLngLat(e.lngLat).setHTML(html).addTo(map);
@@ -275,6 +286,37 @@ document.addEventListener("DOMContentLoaded", function () {
   map.on("mouseleave", "georef-cadastral-fill", function () {
     map.getCanvas().style.cursor = "";
     hoverPopup.remove();
+  });
+
+  // Click Parcel -> Open Interactive Google Maps InfoWindow
+  map.on("click", "georef-cadastral-fill", function (e) {
+    if (e.features.length > 0) {
+      const feat = e.features[0];
+      const props = feat.properties;
+      const html = `
+        <div class="gmap-tooltip-container" style="min-width: 200px;">
+          <div class="gmap-tooltip-header">
+            <i class="bi bi-geo-alt-fill text-danger" style="font-size: 16px;"></i>
+            <h6 class="gmap-tooltip-title">${props.parcel_id || 'Cadastral Parcel'}</h6>
+          </div>
+          <div class="gmap-tooltip-subtitle mb-2">${props.section || 'Cadastral Block Section'}</div>
+          <div class="gmap-badge-row">
+            <span class="gmap-badge success"><i class="bi bi-rulers"></i> ${props.area_acres || '0.5'} Acres</span>
+            <span class="gmap-badge"><i class="bi bi-patch-check"></i> Survey Lot</span>
+          </div>
+          <div class="gmap-coords-box">
+            <div><strong>Location:</strong> ${e.lngLat.lat.toFixed(5)}°, ${e.lngLat.lng.toFixed(5)}°</div>
+          </div>
+          <button class="gmap-btn-primary" onclick="window.flyToPoint(${e.lngLat.lng}, ${e.lngLat.lat})">
+            <i class="bi bi-camera-video-fill"></i> Zoom to Lot
+          </button>
+        </div>
+      `;
+      new mapboxgl.Popup({ offset: 12, closeButton: true })
+        .setLngLat(e.lngLat)
+        .setHTML(html)
+        .addTo(map);
+    }
   });
 
   // 7. Map Load Event: Cinematic Panning & Bounds Fit
