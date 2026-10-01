@@ -86,10 +86,12 @@ if DATABASE_URL:
                 default=DATABASE_URL,
                 conn_max_age=600,
                 conn_health_checks=True,
+                ssl_require=True,
             )
         }
     except Exception:
         pass
+
 
 if 'DATABASES' not in locals() or 'default' not in DATABASES:
     # Serverless environment SQLite path (/tmp is writable on Vercel)
