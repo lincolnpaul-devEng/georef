@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ processed_map.title|default:"Georeferenced Map" }} | GeoRef Studio</title>
+    <!-- Bootstrap 5 CSS & Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Mapbox GL JS CSS -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet">
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+
+    <!-- Header Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+        <div class="container-fluid px-4">
+            <div class="d-flex align-items-center gap-3">
+                <a class="navbar-brand text-primary m-0" href="{% url 'map_processor:landing' %}">
+                    <i class="bi bi-geo-alt-fill text-primary"></i>
+                    <span class="text-white fw-bold">georef</span><span class="text-primary">.ai</span>
+                </a>
+                
+                <span class="badge bg-secondary d-none d-md-inline-block">Map #{{ processed_map.id }}</span>
+                {% if processed_map.status == 'SUCCESS' %}
+                    <span class="badge badge-status-success"><i class="bi bi-check-circle me-1"></i> Georeferenced</span>
+                {% elif processed_map.status == 'PROCESSING' %}
+                    <span class="badge badge-status-processing"><i class="bi bi-hourglass-split me-1"></i> Processing</span>
+                {% else %}
+                    <span class="badge badge-status-failed"><i class="bi bi-exclamation-triangle me-1"></i> Failed</span>
+                {% endif %}
+
+                {% if is_demo_mode %}
+                    <span class="demo-pill-badge d-none d-sm-inline-flex">
+                        <i class="bi bi-eye-fill"></i> Demo Preview
+                    </span>
+                {% endif %}
+            </div>
+            
+            <div class="d-flex align-items-center gap-2">
+                {% if is_verified %}
+                    <!-- User Profile Avatar & Dropdown -->
+                    <div class="dropdown">
+                        <button class="btn btn-dark btn-sm d-flex align-items-center gap-2 rounded-pill px-3 py-1 border border-secondary border-opacity-50" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="{{ verified_email }}">
+                            <div class="user-avatar-circle">{{ user_initial|default:"U" }}</div>
+                            <span class="small text-white text-truncate d-none d-md-inline" style="max-width: 140px;">{{ verified_email }}</span>
+                            <i class="bi bi-chevron-down text-secondary" style="font-size: 10px;"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end shadow border-secondary border-opacity-50">
+                            <li class="dropdown-header text-muted small"><i class="bi bi-patch-check-fill text-success me-1"></i> Verified User</li>
+                            <li><span class="dropdown-item-text small fw-bold text-white text-truncate" style="max-width: 220px;">{{ verified_email }}</span></li>
+                            <li><hr class="dropdown-divider border-secondary border-opacity-50"></li>
+                            <li><a class="dropdown-item small text-danger" href="{% url 'map_processor:logout_access' %}"><i class="bi bi-box-arrow-right me-2"></i> Logout</a></li>
+                        </ul>
+                    </div>
+
+                    <a href="{% url 'map_processor:upload' %}" class="btn btn-primary btn-sm rounded-pill px-3">
+                        <i class="bi bi-plus-lg me-1"></i> Upload Map
+                    </a>
+                {% else %}
+                    <!-- Unverified Demo Viewer Controls -->
+                    <a href="{% url 'map_processor:landing' %}#verify-access-section" class="btn btn-outline-info btn-sm rounded-pill px-3 fw-semibold">
+                        <i class="bi bi-shield-lock-fill me-1"></i> Verify Access
+                    </a>
+                    <a href="{% url 'map_processor:landing' %}#verify-access-section" class="btn btn-primary btn-sm rounded-pill px-3 text-white" title="Verify access to unlock uploading">
+                        <i class="bi bi-lock-fill me-1"></i> Upload Map
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Dashboard Body -->
+    <main class="container-fluid p-3 flex-grow-1 position-relative">
+        
+        <!-- Alerts / Messages -->
+        {% if messages %}
+            <div class="position-absolute top-0 start-50 translate-middle-x mt-4" style="z-index: 1050; min-width: 320px;">
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show shadow-lg" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="row g-3 h-100">
+            <!-- Full Interactive Map Container -->
+            <div class="col-12">
+                <div class="map-viewport-container">
+                    <div id="map"></div>
+
+                    <!-- Quick Toolbar on Left -->
+                    <div class="map-quick-toolbar">
+                        <button id="btnToggle3D" class="map-toolbar-btn" title="Toggle 3D Terrain Relief and Pitch">
+                            <i class="bi bi-badge-3d-fill text-warning"></i> <span>3D Terrain</span>
+                        </button>
+                        <button id="btnFitBounds" class="map-toolbar-btn" title="Cinematic Fit to Map Overlay">
+                            <i class="bi bi-aspect-ratio text-info"></i> <span>Fit Bounds</span>
+                        </button>
+                    </div>
+
+                    <!-- Floating Map Controls Card -->
+                    <div class="map-control-card">
+                        <div class="card-header-custom d-flex justify-content-between align-items-center">
+                            <span class="fw-bold text-truncate me-2 text-white" title="{{ processed_map.title }}">
+                                <i class="bi bi-layers-half text-primary me-2"></i>{{ processed_map.title|default:"Map Sheet" }}
+                            </span>
+                        </div>
+
+                        <div class="map-control-body">
+                            
+                            <!-- Base Map Style Selector -->
+                            <div class="mb-3">
+                                <label for="mapStyleSelect" class="form-label small fw-bold text-white mb-1">
+                                    <i class="bi bi-globe-americas text-primary me-1"></i> Satellite Imagery Style
+                                </label>
+                                <select id="mapStyleSelect" class="form-select form-select-sm">
+                                    <option value="mapbox://styles/mapbox/satellite-streets-v12" selected>Mapbox Satellite Streets (High-Res)</option>
+                                    <option value="mapbox://styles/mapbox/satellite-v9">Mapbox Pure Satellite</option>
+                                    <option value="mapbox://styles/mapbox/navigation-night-v1">Cyberpunk Dark / Neon</option>
+                                    <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors &amp; Topographic</option>
+                                    <option value="mapbox://styles/mapbox/standard">Mapbox Standard 3D</option>
+                                </select>
+                            </div>
+
+                            <!-- Opacity Slider -->
+                            <div class="opacity-slider-container">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label for="opacitySlider" class="form-label small fw-bold text-white mb-0">Raster Overlay Blend</label>
+                                    <span id="opacityVal" class="badge bg-primary">75%</span>
+                                </div>
+                                <input type="range" class="form-range" id="opacitySlider" min="0" max="1" step="0.05" value="0.75">
+                                <div class="d-flex justify-content-between text-muted" style="font-size: 11px;">
+                                    <span>Modern Satellite</span>
+                                    <span>Historical Raster</span>
+                                </div>
+                            </div>
+
+                            <!-- Metadata pills -->
+                            <div class="d-flex flex-wrap gap-2 mb-3">
+                                <span class="badge bg-dark border border-secondary text-white">
+                                    <i class="bi bi-globe me-1 text-info"></i> Datum: {{ processed_map.transformed_data.datum_used|default:processed_map.datum }}
+                                </span>
+                                {% if processed_map.transformed_data.utm_zone_used %}
+                                <span class="badge bg-dark border border-secondary text-white">
+                                    <i class="bi bi-compass me-1 text-warning"></i> UTM Zone: {{ processed_map.transformed_data.utm_zone_used }}{{ processed_map.transformed_data.hemisphere_used }}
+                                </span>
+                                {% endif %}
+                                {% if processed_map.extracted_data.scale %}
+                                <span class="badge bg-dark border border-secondary text-white">
+                                    <i class="bi bi-rulers me-1 text-success"></i> Scale: {{ processed_map.extracted_data.scale }}
+                                </span>
+                                {% endif %}
+                            </div>
+
+                            <!-- Navigation Tabs for Metadata & GCPs -->
+                            <ul class="nav nav-tabs nav-fill mb-3" id="mapTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active py-1 px-2 small text-white fw-semibold" id="gcps-tab" data-bs-toggle="tab" data-bs-target="#gcps" type="button" role="tab">
+                                        Radar GCPs ({{ processed_map.transformed_data.ground_control_points|length }})
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link py-1 px-2 small text-secondary" id="source-tab" data-bs-toggle="tab" data-bs-target="#source" type="button" role="tab">Source Image</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link py-1 px-2 small text-secondary" id="json-tab" data-bs-toggle="tab" data-bs-target="#json" type="button" role="tab">JSON Output</button>
+                                </li>
+                            </ul>
+
+                            <div class="tab-content" id="mapTabsContent">
+                                <!-- GCP Tab -->
+                                <div class="tab-pane fade show active" id="gcps" role="tabpanel">
+                                    <div class="small text-secondary mb-2">
+                                        <i class="bi bi-info-circle text-info me-1"></i> Click any point to smoothly fly camera directly to it.
+                                    </div>
+                                    {% if processed_map.transformed_data.ground_control_points %}
+                                        <div class="table-responsive">
+                                            <table class="gcp-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Point</th>
+                                                        <th>GPS Lat, Lng</th>
+                                                        <th>Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for pt in processed_map.transformed_data.ground_control_points %}
+                                                    <tr class="gcp-row-clickable" data-lat="{{ pt.lat }}" data-lng="{{ pt.lng }}">
+                                                        <td>
+                                                            <strong class="text-white d-block">{{ pt.label }}</strong>
+                                                            {% if pt.easting and pt.northing %}
+                                                                <span class="text-muted" style="font-size: 11px;">{{ pt.easting }}E, {{ pt.northing }}N</span>
+                                                            {% endif %}
+                                                        </td>
+                                                        <td class="text-info">{{ pt.lat }}, {{ pt.lng }}</td>
+                                                        <td>
+                                                            <button class="btn btn-outline-info btn-sm py-0 px-2" style="font-size: 11px;" onclick="window.flyToPoint({{ pt.lng }}, {{ pt.lat }})">
+                                                                <i class="bi bi-camera-video"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    {% else %}
+                                        <p class="text-secondary small mb-0">No Ground Control Points detected.</p>
+                                    {% endif %}
+                                </div>
+
+                                <!-- Source Image Tab -->
+                                <div class="tab-pane fade text-center" id="source" role="tabpanel">
+                                    {% if processed_map.original_image %}
+                                        <a href="{{ processed_map.original_image.url }}" target="_blank">
+                                            <img src="{{ processed_map.original_image.url }}" class="img-fluid rounded border border-secondary mb-2" style="max-height: 180px;" alt="Source Map">
+                                        </a>
+                                        <div class="small text-secondary">Click image to open full resolution</div>
+                                    {% endif %}
+                                </div>
+
+                                <!-- JSON Payload Tab -->
+                                <div class="tab-pane fade" id="json" role="tabpanel">
+                                    <div class="json-inspector">
+                                        <pre class="m-0 text-info">{{ map_json_data }}</pre>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Actions Footer -->
+                            <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-secondary border-opacity-50">
+                                {% if is_verified %}
+                                    <a href="{% url 'map_processor:reprocess' processed_map.id %}" class="btn btn-sm btn-outline-warning">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Reprocess
+                                    </a>
+                                {% else %}
+                                    <a href="{% url 'map_processor:landing' %}#verify-access-section" class="btn btn-sm btn-outline-secondary" title="Verify access to unlock reprocessing">
+                                        <i class="bi bi-lock-fill me-1"></i> Reprocess (Locked)
+                                    </a>
+                                {% endif %}
+                                <a href="{% url 'map_processor:map_api' processed_map.id %}" target="_blank" class="btn btn-sm btn-outline-info">
+                                    <i class="bi bi-code-slash me-1"></i> GeoJSON API
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- XSS-Proof Map Configuration JSON Data -->
+    <script id="map-data-json" type="application/json">{{ map_json_data|safe }}</script>
+    <script>
+        try {
+            window.mapConfigData = JSON.parse(document.getElementById('map-data-json').textContent);
+        } catch(e) {
+            window.mapConfigData = {};
+        }
+        window.mapboxAccessToken = '{{ mapbox_token|escapejs }}';
+    </script>
+
+    <!-- Bootstrap 5 & Mapbox GL JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.js"></script>
+    <script src="{% static 'js/map.js' %}"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Environment Variables & Secrets
+.env
+*.env
+
+# Python & Virtualenv
+venv/
+env/
+ENV/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Database
+*.sqlite3
+*.db
+
+# Media & User Uploads
+media/
+staticfiles/
+
+# IDE / System
+.vscode/
+.idea/
+.DS_Store
+*.log

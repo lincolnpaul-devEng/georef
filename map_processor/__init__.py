@@ -1,0 +1,1 @@
+"""Map processor application package."""
