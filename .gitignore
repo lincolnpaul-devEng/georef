@@ -18,6 +18,7 @@ __pycache__/
 
 # Media & User Uploads
 media/
+maps/
 staticfiles/
 
 # IDE / System

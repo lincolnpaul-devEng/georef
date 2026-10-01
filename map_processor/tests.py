@@ -11,7 +11,8 @@ from .forms import MapUploadForm
 from .services import (
     DATUM_PROJECTIONS,
     convert_utm_to_wgs84,
-    check_or_request_supabase_access
+    check_or_request_supabase_access,
+    CartographyHarness
 )
 
 
@@ -240,3 +241,76 @@ class SecurityMiddlewareTestCase(TestCase):
         self.assertEqual(response.headers.get('X-Content-Type-Options'), 'nosniff')
         self.assertEqual(response.headers.get('X-Frame-Options'), 'DENY')
         self.assertIn('mode=block', response.headers.get('X-XSS-Protection', ''))
+
+
+class CartographyHarnessTestCase(TestCase):
+    """
+    Validates the expert self-correcting cartographic engine and vector GeoJSON generator.
+    """
+    def test_utm_coordinate_normalization(self):
+        # Test shorthand Easting / Northing expansion
+        e, n = CartographyHarness.normalize_utm_coordinates(696.72, 9989.85, zone=36, hemisphere="S")
+        self.assertAlmostEqual(e, 696720.0, delta=1.0)
+        self.assertAlmostEqual(n, 9989850.0, delta=1.0)
+
+        # Test false northing near equator in southern hemisphere
+        e2, n2 = CartographyHarness.normalize_utm_coordinates(696720.0, 10150.0, zone=36, hemisphere="S")
+        self.assertAlmostEqual(n2, 9989850.0, delta=1.0)
+
+    def test_self_correct_quadrangle_gcps(self):
+        # Given 4 GCPs where SE corner is perturbed
+        gcps = [
+            {"label": "NW", "lat": -0.05, "lng": 34.70},
+            {"label": "NE", "lat": -0.05, "lng": 34.80},
+            {"label": "SE", "lat": -0.25, "lng": 34.90}, # Distorted SE
+            {"label": "SW", "lat": -0.15, "lng": 34.70},
+        ]
+        corrected = CartographyHarness.self_correct_quadrangle_gcps(gcps)
+        # Expected SE lat: -0.15 + (-0.05 - (-0.05)) = -0.15
+        # Expected SE lng: 34.70 + (34.80 - 34.70) = 34.80
+        self.assertAlmostEqual(corrected[2]["lat"], -0.15, places=4)
+        self.assertAlmostEqual(corrected[2]["lng"], 34.80, places=4)
+        self.assertTrue(corrected[2].get("self_corrected", False))
+
+    def test_vector_geojson_generation(self):
+        neatline = [
+            [34.70, -0.05], # West, North
+            [34.80, -0.05], # East, North
+            [34.80, -0.15], # East, South
+            [34.70, -0.15], # West, South
+        ]
+        gcps = [
+            {"label": "NW", "lat": -0.05, "lng": 34.70},
+            {"label": "NE", "lat": -0.05, "lng": 34.80},
+            {"label": "SE", "lat": -0.15, "lng": 34.80},
+            {"label": "SW", "lat": -0.15, "lng": 34.70},
+        ]
+        result = CartographyHarness.generate_vector_geojson_layers(
+            neatline_coords=neatline,
+            gcps=gcps,
+            title="Kisumu Kogony Cadastral Sheet",
+            scale="1:2,500",
+            location_name="Kisumu Kogony"
+        )
+        self.assertIn("feature_collection", result)
+        self.assertIn("metrics", result)
+        
+        geojson = result["feature_collection"]
+        self.assertEqual(geojson["type"], "FeatureCollection")
+        self.assertGreater(len(geojson["features"]), 5)
+        
+        # Check neatline polygon layer
+        neatline_feat = next(f for f in geojson["features"] if f["properties"].get("layer_type") == "neatline_boundary")
+        self.assertEqual(neatline_feat["geometry"]["type"], "Polygon")
+        self.assertIn("Kisumu Kogony Cadastral Sheet", neatline_feat["properties"]["name"])
+
+        # Check cadastral parcel layers
+        parcels = [f for f in geojson["features"] if f["properties"].get("layer_type") == "cadastral_parcel"]
+        self.assertEqual(len(parcels), 4)
+        self.assertEqual(parcels[0]["properties"]["parcel_id"], "Plot 101")
+        
+        # Check metrics
+        metrics = result["metrics"]
+        self.assertGreater(metrics["area_hectares"], 0)
+        self.assertGreater(metrics["area_acres"], 0)
+

@@ -1,7 +1,7 @@
 /**
- * GeoRef Studio - Mapbox GL JS Mapping Engine
- * High-resolution satellite imagery, smooth camera panning (map.flyTo),
- * dynamic raster map overlays, 3D terrain, and glowing neon vector GCP radar overlays.
+ * GeoRef Studio - Mapbox GL JS Mapping & Cartographic Vector Engine
+ * Precision Vector Overlay Harness, Self-Correcting Neatline Boundaries,
+ * Color-Coded Cadastral Parcels, 3D Satellite Imagery, and Pulsing Radar GCP Markers.
  */
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -11,11 +11,13 @@ document.addEventListener("DOMContentLoaded", function () {
   const data = window.mapConfigData;
   const transformed = data.transformed_data || {};
   const bounds = transformed.leaflet_bounds; // [[south, west], [north, east]]
-  const center = transformed.center ? [transformed.center[1], transformed.center[0]] : [36.82, -1.29]; // [lng, lat]
+  const center = transformed.center ? [transformed.center[1], transformed.center[0]] : [34.75, -0.08]; // [lng, lat]
   const gcps = transformed.ground_control_points || [];
   const imageUrl = data.image_url || transformed.image_url;
+  const vectorLayers = transformed.vector_layers || null;
+  const metrics = transformed.metrics || {};
 
-  // 1. Resolve Mapbox Access Token (loaded securely from backend context)
+  // 1. Resolve Mapbox Access Token
   mapboxgl.accessToken = window.mapboxAccessToken || "";
 
   // 2. Initialize Mapbox GL JS Map
@@ -27,9 +29,9 @@ document.addEventListener("DOMContentLoaded", function () {
       container: "map",
       style: currentStyle,
       center: center,
-      zoom: 11,
-      pitch: 0,
-      bearing: 0,
+      zoom: 13,
+      pitch: 30,
+      bearing: -5,
       antialias: true
     });
   } catch (err) {
@@ -37,15 +39,14 @@ document.addEventListener("DOMContentLoaded", function () {
     return;
   }
 
-  // Navigation & Scale Controls
+  // Navigation, Scale & Fullscreen Controls
   map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), "top-left");
   map.addControl(new mapboxgl.ScaleControl({ unit: "metric" }), "bottom-left");
   map.addControl(new mapboxgl.FullscreenControl(), "top-left");
 
-  // Format bounding coordinates for Mapbox Image Source:
-  // Coordinates order: [top-left [lng, lat], top-right, bottom-right, bottom-left]
-  let imageCoordinates = null;
+  // Format bounding coordinates
   let mapboxBounds = null;
+  let imageCoordinates = null;
 
   if (bounds && bounds.length === 2) {
     const south = bounds[0][0];
@@ -66,9 +67,9 @@ document.addEventListener("DOMContentLoaded", function () {
     ];
   }
 
-  // 3. Setup Layers when Map Styles Load
+  // 3. Setup Vector Layers & Precision Overlays
   function setupMapLayers() {
-    // 3A. 3D Terrain DEM Source
+    // 3A. 3D Terrain Source
     if (!map.getSource("mapbox-dem")) {
       map.addSource("mapbox-dem", {
         type: "raster-dem",
@@ -78,7 +79,93 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    // 3B. Add Georeferenced Raster Map Overlay
+    // 3B. Precision Vector Layers (Neatlines, Grids, Cadastral Parcels)
+    if (vectorLayers && vectorLayers.features) {
+      if (!map.getSource("georef-vector-source")) {
+        map.addSource("georef-vector-source", {
+          type: "geojson",
+          data: vectorLayers
+        });
+      }
+
+      // Cadastral Parcel Fill Layer
+      if (!map.getLayer("georef-cadastral-fill")) {
+        map.addLayer({
+          id: "georef-cadastral-fill",
+          type: "fill",
+          source: "georef-vector-source",
+          filter: ["==", ["get", "layer_type"], "cadastral_parcel"],
+          paint: {
+            "fill-color": ["coalesce", ["get", "fill_color"], "rgba(0, 240, 255, 0.12)"],
+            "fill-opacity": 0.85
+          }
+        });
+      }
+
+      // Cadastral Parcel Boundary Lines
+      if (!map.getLayer("georef-cadastral-line")) {
+        map.addLayer({
+          id: "georef-cadastral-line",
+          type: "line",
+          source: "georef-vector-source",
+          filter: ["==", ["get", "layer_type"], "cadastral_parcel"],
+          paint: {
+            "line-color": ["coalesce", ["get", "stroke_color"], "#10b981"],
+            "line-width": 1.5,
+            "line-opacity": 0.9
+          }
+        });
+      }
+
+      // Survey Grid Lines
+      if (!map.getLayer("georef-grid-lines")) {
+        map.addLayer({
+          id: "georef-grid-lines",
+          type: "line",
+          source: "georef-vector-source",
+          filter: ["==", ["get", "layer_type"], "grid_line"],
+          paint: {
+            "line-color": "#38bdf8",
+            "line-width": 1.2,
+            "line-dasharray": [4, 4],
+            "line-opacity": 0.75
+          }
+        });
+      }
+
+      // Outer Neatline Glow Layer
+      if (!map.getLayer("georef-neatline-glow")) {
+        map.addLayer({
+          id: "georef-neatline-glow",
+          type: "line",
+          source: "georef-vector-source",
+          filter: ["==", ["get", "layer_type"], "neatline_boundary"],
+          paint: {
+            "line-color": "#00f0ff",
+            "line-width": 6,
+            "line-blur": 6,
+            "line-opacity": 0.9
+          }
+        });
+      }
+
+      // Outer Neatline Crisp Edge
+      if (!map.getLayer("georef-neatline-core")) {
+        map.addLayer({
+          id: "georef-neatline-core",
+          type: "line",
+          source: "georef-vector-source",
+          filter: ["==", ["get", "layer_type"], "neatline_boundary"],
+          paint: {
+            "line-color": "#ffffff",
+            "line-width": 2.5,
+            "line-opacity": 1.0
+          }
+        });
+      }
+    }
+
+    // 3C. Optional Scanned Raster Overlay (defaults to hidden / low blend in vector mode)
     if (imageUrl && imageCoordinates) {
       if (!map.getSource("georef-raster-source")) {
         map.addSource("georef-raster-source", {
@@ -94,62 +181,9 @@ document.addEventListener("DOMContentLoaded", function () {
           type: "raster",
           source: "georef-raster-source",
           paint: {
-            "raster-opacity": parseFloat(document.getElementById("opacitySlider")?.value || 0.75),
+            "raster-opacity": parseFloat(document.getElementById("opacitySlider")?.value || 0.0),
             "raster-resampling": "linear",
             "raster-fade-duration": 200
-          }
-        });
-      }
-    }
-
-    // 3C. Add Glowing Neon Vector Boundary Overlay
-    if (imageCoordinates) {
-      const polygonGeoJSON = {
-        type: "Feature",
-        geometry: {
-          type: "Polygon",
-          coordinates: [[
-            imageCoordinates[0],
-            imageCoordinates[1],
-            imageCoordinates[2],
-            imageCoordinates[3],
-            imageCoordinates[0]
-          ]]
-        }
-      };
-
-      if (!map.getSource("georef-boundary-source")) {
-        map.addSource("georef-boundary-source", {
-          type: "geojson",
-          data: polygonGeoJSON
-        });
-      }
-
-      // Outer Neon Glow Line
-      if (!map.getLayer("georef-boundary-glow")) {
-        map.addLayer({
-          id: "georef-boundary-glow",
-          type: "line",
-          source: "georef-boundary-source",
-          paint: {
-            "line-color": "#00f0ff",
-            "line-width": 6,
-            "line-blur": 5,
-            "line-opacity": 0.85
-          }
-        });
-      }
-
-      // Sharp Core Neon Line
-      if (!map.getLayer("georef-boundary-line")) {
-        map.addLayer({
-          id: "georef-boundary-line",
-          type: "line",
-          source: "georef-boundary-source",
-          paint: {
-            "line-color": "#ffffff",
-            "line-width": 2,
-            "line-dasharray": [3, 2]
           }
         });
       }
@@ -160,13 +194,11 @@ document.addEventListener("DOMContentLoaded", function () {
   const gcpMarkers = [];
 
   function plotGcpRadarMarkers() {
-    // Clear existing markers
     gcpMarkers.forEach(m => m.remove());
     gcpMarkers.length = 0;
 
     gcps.forEach((gcp, index) => {
       if (gcp.lat !== undefined && gcp.lng !== undefined) {
-        // Create pulsing neon radar DOM element
         const markerEl = document.createElement("div");
         markerEl.className = "mapbox-neon-marker";
         markerEl.innerHTML = `
@@ -176,16 +208,18 @@ document.addEventListener("DOMContentLoaded", function () {
         `;
 
         const popupHTML = `
-          <div style="font-family: inherit; font-size: 13px; line-height: 1.5;">
-            <div style="font-weight: 700; color: #00f0ff; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
-              <i class="bi bi-geo-fill"></i> ${gcp.label || 'Ground Control Point #' + (index + 1)}
+          <div style="font-family: inherit; font-size: 13px; line-height: 1.5; min-width: 220px;">
+            <div style="font-weight: 700; color: #00f0ff; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
+              <i class="bi bi-crosshair text-primary"></i> ${gcp.label || 'Control Point #' + (index + 1)}
             </div>
-            <div style="color: #e2e8f0;">
-              <strong>GPS:</strong> ${gcp.lat.toFixed(6)}°, ${gcp.lng.toFixed(6)}°<br/>
-              ${gcp.easting ? `<strong>Easting:</strong> ${gcp.easting.toLocaleString()} m<br/>` : ''}
-              ${gcp.northing ? `<strong>Northing:</strong> ${gcp.northing.toLocaleString()} m<br/>` : ''}
+            <div style="color: #e2e8f0; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 6px;">
+              <div><strong>GPS Lat:</strong> <span class="text-info">${gcp.lat.toFixed(6)}°</span></div>
+              <div><strong>GPS Lng:</strong> <span class="text-info">${gcp.lng.toFixed(6)}°</span></div>
+              ${gcp.easting ? `<div><strong>Easting:</strong> ${gcp.easting}</div>` : ''}
+              ${gcp.northing ? `<div><strong>Northing:</strong> ${gcp.northing}</div>` : ''}
+              ${gcp.self_corrected ? `<div class="badge bg-success mt-1"><i class="bi bi-shield-check"></i> Self-Corrected</div>` : ''}
             </div>
-            <button class="btn btn-sm btn-primary mt-2 py-0 px-2 w-100" style="font-size: 11px;" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">
+            <button class="btn btn-sm btn-primary mt-2 py-1 px-2 w-100 fw-semibold" style="font-size: 11px;" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">
               <i class="bi bi-camera-video me-1"></i> Cinematic Fly To
             </button>
           </div>
@@ -208,26 +242,52 @@ document.addEventListener("DOMContentLoaded", function () {
   window.flyToPoint = function (lng, lat) {
     map.flyTo({
       center: [lng, lat],
-      zoom: 16,
-      pitch: 45,
+      zoom: 16.5,
+      pitch: 50,
       bearing: -15,
-      duration: 2500,
+      duration: 2200,
       essential: true
     });
   };
 
-  // 6. Map Load Event: Cinematic Panning & Bounds Fit
+  // 6. Interactive Parcel Hover Tooltip
+  const hoverPopup = new mapboxgl.Popup({
+    closeButton: false,
+    closeOnClick: false
+  });
+
+  map.on("mousemove", "georef-cadastral-fill", function (e) {
+    map.getCanvas().style.cursor = "pointer";
+    if (e.features.length > 0) {
+      const feat = e.features[0];
+      const props = feat.properties;
+      const html = `
+        <div style="font-size: 12px; font-weight: 600; color: #fff;">
+          <i class="bi bi-bounding-box text-success me-1"></i> ${props.parcel_id || 'Cadastral Parcel'}<br/>
+          <span class="text-muted small">${props.section || 'Survey Section'}</span><br/>
+          <span class="text-warning small"><i class="bi bi-rulers"></i> ${props.area_acres || '0.5'} Acres</span>
+        </div>
+      `;
+      hoverPopup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+    }
+  });
+
+  map.on("mouseleave", "georef-cadastral-fill", function () {
+    map.getCanvas().style.cursor = "";
+    hoverPopup.remove();
+  });
+
+  // 7. Map Load Event: Cinematic Panning & Bounds Fit
   map.on("load", function () {
     setupMapLayers();
     plotGcpRadarMarkers();
 
-    // Cinematic entry animation with map.flyTo
     if (mapboxBounds) {
       map.fitBounds(mapboxBounds, {
-        padding: { top: 60, bottom: 60, left: 60, right: 420 },
-        maxZoom: 15,
+        padding: { top: 70, bottom: 70, left: 70, right: 440 },
+        maxZoom: 16,
         duration: 2500,
-        pitch: 25,
+        pitch: 35,
         bearing: -5
       });
     }
@@ -239,7 +299,28 @@ document.addEventListener("DOMContentLoaded", function () {
     plotGcpRadarMarkers();
   });
 
-  // 7. UI Controls & Event Listeners
+  // 8. UI Controls & Event Listeners
+
+  // Vector Mode Selector
+  const vectorModeSelect = document.getElementById("vectorModeSelect");
+  if (vectorModeSelect) {
+    vectorModeSelect.addEventListener("change", function (e) {
+      const mode = e.target.value;
+      if (mode === "vector_only") {
+        if (map.getLayer("georef-raster-layer")) map.setPaintProperty("georef-raster-layer", "raster-opacity", 0.0);
+        if (map.getLayer("georef-cadastral-fill")) map.setLayoutProperty("georef-cadastral-fill", "visibility", "visible");
+        if (map.getLayer("georef-grid-lines")) map.setLayoutProperty("georef-grid-lines", "visibility", "visible");
+      } else if (mode === "cadastral_color") {
+        if (map.getLayer("georef-raster-layer")) map.setPaintProperty("georef-raster-layer", "raster-opacity", 0.0);
+        if (map.getLayer("georef-cadastral-fill")) {
+          map.setLayoutProperty("georef-cadastral-fill", "visibility", "visible");
+          map.setPaintProperty("georef-cadastral-fill", "fill-opacity", 0.45);
+        }
+      } else if (mode === "raster_blend") {
+        if (map.getLayer("georef-raster-layer")) map.setPaintProperty("georef-raster-layer", "raster-opacity", 0.75);
+      }
+    });
+  }
 
   // Opacity Slider
   const opacitySlider = document.getElementById("opacitySlider");
@@ -262,14 +343,14 @@ document.addEventListener("DOMContentLoaded", function () {
   if (btnFitBounds && mapboxBounds) {
     btnFitBounds.addEventListener("click", function () {
       map.fitBounds(mapboxBounds, {
-        padding: { top: 60, bottom: 60, left: 60, right: 420 },
+        padding: { top: 70, bottom: 70, left: 70, right: 440 },
         duration: 2000,
-        pitch: 20
+        pitch: 30
       });
     });
   }
 
-  // 3D Terrain & Pitch Toggle
+  // 3D Terrain & Relief Pitch Toggle
   const btnToggle3D = document.getElementById("btnToggle3D");
   let is3DActive = false;
 
@@ -282,7 +363,7 @@ document.addEventListener("DOMContentLoaded", function () {
         map.setTerrain({ source: "mapbox-dem", exaggeration: 1.5 });
         map.flyTo({
           pitch: 60,
-          bearing: -30,
+          bearing: -35,
           duration: 2500,
           essential: true
         });
