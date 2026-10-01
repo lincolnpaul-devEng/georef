@@ -100,16 +100,19 @@ def check_or_request_supabase_access(email: str) -> Tuple[bool, str, Dict[str, A
             logger.error(f"Supabase access verification error: {e}")
 
     # 2. Local Database Mirror / Fallback
-    local_record, created = UserAccess.objects.get_or_create(email=clean_email)
-    
-    # If Supabase gave an approval, sync it locally
-    if is_approved and not local_record.is_approved:
-        local_record.is_approved = True
-        local_record.save()
-    elif not supabase_url:
-        # If Supabase is not configured yet, use local admin approval
-        is_approved = local_record.is_approved
-        status = "approved" if is_approved else ("created_pending" if created else "pending")
+    try:
+        local_record, created = UserAccess.objects.get_or_create(email=clean_email)
+        
+        # If Supabase gave an approval, sync it locally
+        if is_approved and not local_record.is_approved:
+            local_record.is_approved = True
+            local_record.save()
+        elif not supabase_url:
+            # If Supabase is not configured yet, use local admin approval
+            is_approved = local_record.is_approved
+            status = "approved" if is_approved else ("created_pending" if created else "pending")
+    except Exception as db_err:
+        logger.warning(f"Local UserAccess mirror error: {db_err}")
 
     if is_approved:
         msg = f"Access granted for {clean_email}."

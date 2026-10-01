@@ -37,7 +37,12 @@ def landing_view(request):
     supported datums, features, and quick links.
     """
     is_verified, verified_email = get_verified_user_status(request)
-    recent_maps = ProcessedMap.objects.all()[:6]
+    recent_maps = []
+    try:
+        recent_maps = list(ProcessedMap.objects.all()[:6])
+    except Exception as e:
+        logger.warning(f"Database query error in landing view: {e}")
+
     return render(request, 'map_processor/landing.html', {
         'recent_maps': recent_maps,
         'verified_email': verified_email,
@@ -58,10 +63,18 @@ def verify_access_view(request):
             messages.error(request, "Please enter a valid email address.")
             return redirect('map_processor:landing')
 
-        is_approved, status_msg, details = check_or_request_supabase_access(email)
+        try:
+            is_approved, status_msg, details = check_or_request_supabase_access(email)
+        except Exception as e:
+            logger.error(f"Error during access verification: {e}")
+            is_approved = False
+            status_msg = "Verification temporarily unavailable. Please try again."
 
         if is_approved:
-            request.session['verified_email'] = email
+            try:
+                request.session['verified_email'] = email
+            except Exception as e:
+                logger.error(f"Session write error: {e}")
             messages.success(request, f"Welcome! Access granted for {email}.")
             return redirect(next_url)
         else:
