@@ -75,22 +75,36 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'core.wsgi.application'
+# Database Configuration (PostgreSQL / Supabase or SQLite)
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 
-# Serverless environment SQLite path (/tmp is writable on Vercel)
-if os.environ.get('VERCEL') == '1' or not os.access(BASE_DIR, os.W_OK):
-    DB_PATH = Path('/tmp') / 'db.sqlite3'
-    MEDIA_ROOT = Path('/tmp') / 'media'
-else:
-    DB_PATH = BASE_DIR / 'db.sqlite3'
-    MEDIA_ROOT = BASE_DIR / 'media'
+if DATABASE_URL:
+    try:
+        import dj_database_url
+        DATABASES = {
+            'default': dj_database_url.config(
+                default=DATABASE_URL,
+                conn_max_age=600,
+                conn_health_checks=True,
+            )
+        }
+    except Exception:
+        pass
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': DB_PATH,
+if 'DATABASES' not in locals() or 'default' not in DATABASES:
+    # Serverless environment SQLite path (/tmp is writable on Vercel)
+    if os.environ.get('VERCEL') == '1' or not os.access(BASE_DIR, os.W_OK):
+        DB_PATH = Path('/tmp') / 'db.sqlite3'
+    else:
+        DB_PATH = BASE_DIR / 'db.sqlite3'
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': DB_PATH,
+        }
     }
-}
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {
