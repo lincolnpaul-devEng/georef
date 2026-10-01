@@ -190,49 +190,73 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // 4. Plot Glowing Neon Vector Radar Markers (GCPs)
+  // 4. Plot Classic Google Maps Pins & Callout InfoWindows (GCPs)
   const gcpMarkers = [];
 
   function plotGcpRadarMarkers() {
     gcpMarkers.forEach(m => m.remove());
     gcpMarkers.length = 0;
 
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const defaultThumbnail = imageUrl || "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=200&auto=format&fit=crop&q=60";
+
     gcps.forEach((gcp, index) => {
       if (gcp.lat !== undefined && gcp.lng !== undefined) {
         const markerEl = document.createElement("div");
-        markerEl.className = "mapbox-neon-marker";
+        markerEl.className = "gmap-classic-pin";
+        const pinLabel = alphabet[index % alphabet.length];
+        
         markerEl.innerHTML = `
-          <div class="radar-ring"></div>
-          <div class="radar-ring ring-2"></div>
-          <div class="radar-dot"></div>
+          <svg width="30" height="40" viewBox="0 0 32 42" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 0C7.163 0 0 7.163 0 16c0 11.25 14.25 24.75 15.35 25.77a.9.9 0 001.3 0C17.75 40.75 32 27.25 32 16 32 7.163 24.837 0 16 0z" fill="#EA4335"/>
+            <circle cx="16" cy="15" r="8" fill="#FFFFFF"/>
+            <text x="16" y="19.5" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#B31412" text-anchor="middle">${pinLabel}</text>
+          </svg>
         `;
 
+        const title = gcp.label || `Control Point ${pinLabel}`;
+        const locationLine1 = data.title || 'Cadastral Survey Map';
+        const locationLine2 = gcp.easting && gcp.northing ? `Grid: ${Math.round(gcp.easting)}E, ${Math.round(gcp.northing)}N` : `Datum: ${transformed.datum_used || 'Arc 1960'}`;
+        const coordLine = `GPS: ${gcp.lat.toFixed(6)}°, ${gcp.lng.toFixed(6)}°`;
+        const webText = 'georef.tedoraltd.com';
+        const reviewText = gcp.self_corrected ? 'Self-Corrected 98%' : '48 verified points';
+
         const popupHTML = `
-          <div class="gmap-tooltip-container">
-            <div class="gmap-tooltip-header">
-              <i class="bi bi-geo-alt-fill gmap-pin-icon"></i>
-              <h6 class="gmap-tooltip-title">${gcp.label || 'Control Point #' + (index + 1)}</h6>
+          <div class="gmap-classic-card">
+            <div class="gmap-classic-header">
+              <div class="gmap-classic-title-wrap">
+                <span class="gmap-classic-title" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">${title}</span>
+                <span class="gmap-star-fav" title="Save to favorites">☆</span>
+              </div>
             </div>
-            <div class="gmap-tooltip-subtitle">Georeferenced Ground Control Point</div>
-            <div class="gmap-badge-row">
-              ${gcp.self_corrected ? '<span class="gmap-badge success"><i class="bi bi-patch-check-fill"></i> Self-Corrected</span>' : '<span class="gmap-badge"><i class="bi bi-check2-circle"></i> Verified</span>'}
-              ${gcp.easting ? '<span class="gmap-badge warning"><i class="bi bi-compass"></i> UTM Grid</span>' : ''}
+
+            <div class="gmap-classic-body">
+              <div class="gmap-classic-details">
+                <div class="gmap-classic-line fw-bold">${locationLine1}</div>
+                <div class="gmap-classic-line text-muted">${locationLine2}</div>
+                <div class="gmap-classic-line">${coordLine}</div>
+                <a class="gmap-classic-link" href="javascript:void(0)" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">${webText}</a>
+                <div class="gmap-rating-row">
+                  <span class="gmap-stars-red">★★★★★</span>
+                  <span class="gmap-reviews-count">${reviewText}</span>
+                </div>
+              </div>
+              <img src="${defaultThumbnail}" class="gmap-classic-thumbnail" alt="Map Preview" onerror="this.style.display='none'">
             </div>
-            <div class="gmap-coords-box">
-              <div><strong>GPS Lat:</strong> ${gcp.lat.toFixed(6)}°</div>
-              <div><strong>GPS Lng:</strong> ${gcp.lng.toFixed(6)}°</div>
-              ${gcp.easting && gcp.northing ? `<div><strong>Grid:</strong> ${Math.round(gcp.easting)}E, ${Math.round(gcp.northing)}N</div>` : ''}
+
+            <div class="gmap-actions-bar">
+              <a class="gmap-action-link" href="javascript:void(0)" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">Directions</a>
+              <a class="gmap-action-link" href="javascript:void(0)" onclick="if(window.fitMapBounds) window.fitMapBounds();">Search nearby</a>
+              <a class="gmap-action-link" href="javascript:void(0)" onclick="window.open('/api/maps/${data.id || 0}/', '_blank')">Save to map</a>
+              <a class="gmap-action-link" href="javascript:void(0)" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">More ▾</a>
             </div>
-            <button class="gmap-btn-primary" onclick="window.flyToPoint(${gcp.lng}, ${gcp.lat})">
-              <i class="bi bi-camera-video-fill"></i> Cinematic Fly To
-            </button>
           </div>
         `;
 
-        const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
+        const popup = new mapboxgl.Popup({ offset: [0, -32], closeButton: true })
           .setHTML(popupHTML);
 
-        const marker = new mapboxgl.Marker({ element: markerEl, anchor: "center" })
+        const marker = new mapboxgl.Marker({ element: markerEl, anchor: "bottom" })
           .setLngLat([gcp.lng, gcp.lat])
           .setPopup(popup)
           .addTo(map);
@@ -254,11 +278,11 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   };
 
-  // 6. Interactive Parcel Hover Tooltip (Google Maps style)
+  // 6. Interactive Parcel Hover Tooltip (Google Maps classic style)
   const hoverPopup = new mapboxgl.Popup({
     closeButton: false,
     closeOnClick: false,
-    offset: 12
+    offset: 14
   });
 
   map.on("mousemove", "georef-cadastral-fill", function (e) {
@@ -267,15 +291,20 @@ document.addEventListener("DOMContentLoaded", function () {
       const feat = e.features[0];
       const props = feat.properties;
       const html = `
-        <div class="gmap-tooltip-container" style="min-width: 170px;">
-          <div class="gmap-tooltip-header">
-            <i class="bi bi-geo-alt-fill text-danger" style="font-size: 15px;"></i>
-            <h6 class="gmap-tooltip-title">${props.parcel_id || 'Cadastral Parcel'}</h6>
+        <div class="gmap-classic-card" style="min-width: 220px;">
+          <div class="gmap-classic-header" style="margin-bottom: 4px;">
+            <div class="gmap-classic-title-wrap">
+              <span class="gmap-classic-title" style="font-size: 13px;">${props.parcel_id || 'Cadastral Parcel'}</span>
+              <span class="gmap-star-fav">☆</span>
+            </div>
           </div>
-          <div class="gmap-tooltip-subtitle mb-2">${props.section || 'Cadastral Block'}</div>
-          <div class="gmap-badge-row mb-0">
-            <span class="gmap-badge success"><i class="bi bi-rulers"></i> ${props.area_acres || '0.5'} Acres</span>
-            <span class="gmap-badge"><i class="bi bi-layers"></i> Cadastral</span>
+          <div class="gmap-classic-details">
+            <div class="gmap-classic-line text-muted" style="font-size: 11px;">${props.section || 'Survey Section Block'}</div>
+            <div class="gmap-classic-line" style="font-size: 11px;"><strong>Area:</strong> ${props.area_acres || '0.5'} Acres (${Math.round((props.area_acres || 0.5) * 0.404686 * 100)/100} Ha)</div>
+            <div class="gmap-rating-row" style="margin-top: 2px;">
+              <span class="gmap-stars-red" style="font-size: 10px;">★★★★★</span>
+              <span class="gmap-reviews-count" style="font-size: 10px;">Verified Survey Lot</span>
+            </div>
           </div>
         </div>
       `;
@@ -288,28 +317,42 @@ document.addEventListener("DOMContentLoaded", function () {
     hoverPopup.remove();
   });
 
-  // Click Parcel -> Open Interactive Google Maps InfoWindow
+  // Click Parcel -> Open Full Classic Google Maps InfoWindow
   map.on("click", "georef-cadastral-fill", function (e) {
     if (e.features.length > 0) {
       const feat = e.features[0];
       const props = feat.properties;
+      const defaultThumbnail = imageUrl || "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=200&auto=format&fit=crop&q=60";
+      
       const html = `
-        <div class="gmap-tooltip-container" style="min-width: 200px;">
-          <div class="gmap-tooltip-header">
-            <i class="bi bi-geo-alt-fill text-danger" style="font-size: 16px;"></i>
-            <h6 class="gmap-tooltip-title">${props.parcel_id || 'Cadastral Parcel'}</h6>
+        <div class="gmap-classic-card">
+          <div class="gmap-classic-header">
+            <div class="gmap-classic-title-wrap">
+              <span class="gmap-classic-title" onclick="window.flyToPoint(${e.lngLat.lng}, ${e.lngLat.lat})">${props.parcel_id || 'Cadastral Parcel'}</span>
+              <span class="gmap-star-fav">☆</span>
+            </div>
           </div>
-          <div class="gmap-tooltip-subtitle mb-2">${props.section || 'Cadastral Block Section'}</div>
-          <div class="gmap-badge-row">
-            <span class="gmap-badge success"><i class="bi bi-rulers"></i> ${props.area_acres || '0.5'} Acres</span>
-            <span class="gmap-badge"><i class="bi bi-patch-check"></i> Survey Lot</span>
+
+          <div class="gmap-classic-body">
+            <div class="gmap-classic-details">
+              <div class="gmap-classic-line fw-bold">${props.section || 'Survey Registration Section'}</div>
+              <div class="gmap-classic-line text-muted">Acreage: ${props.area_acres || '0.5'} Acres</div>
+              <div class="gmap-classic-line">GPS: ${e.lngLat.lat.toFixed(5)}°, ${e.lngLat.lng.toFixed(5)}°</div>
+              <a class="gmap-classic-link" href="javascript:void(0)" onclick="window.flyToPoint(${e.lngLat.lng}, ${e.lngLat.lat})">georef.tedoraltd.com</a>
+              <div class="gmap-rating-row">
+                <span class="gmap-stars-red">★★★★★</span>
+                <span class="gmap-reviews-count">Cadastral Boundary</span>
+              </div>
+            </div>
+            <img src="${defaultThumbnail}" class="gmap-classic-thumbnail" alt="Map Preview" onerror="this.style.display='none'">
           </div>
-          <div class="gmap-coords-box">
-            <div><strong>Location:</strong> ${e.lngLat.lat.toFixed(5)}°, ${e.lngLat.lng.toFixed(5)}°</div>
+
+          <div class="gmap-actions-bar">
+            <a class="gmap-action-link" href="javascript:void(0)" onclick="window.flyToPoint(${e.lngLat.lng}, ${e.lngLat.lat})">Directions</a>
+            <a class="gmap-action-link" href="javascript:void(0)" onclick="if(window.fitMapBounds) window.fitMapBounds();">Search nearby</a>
+            <a class="gmap-action-link" href="javascript:void(0)" onclick="window.open('/api/maps/${data.id || 0}/', '_blank')">Save to map</a>
+            <a class="gmap-action-link" href="javascript:void(0)" onclick="window.flyToPoint(${e.lngLat.lng}, ${e.lngLat.lat})">More ▾</a>
           </div>
-          <button class="gmap-btn-primary" onclick="window.flyToPoint(${e.lngLat.lng}, ${e.lngLat.lat})">
-            <i class="bi bi-camera-video-fill"></i> Zoom to Lot
-          </button>
         </div>
       `;
       new mapboxgl.Popup({ offset: 12, closeButton: true })
