@@ -25,6 +25,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'map_processor.middleware.SecurityHeadersMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -43,11 +44,13 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_TRUSTED_ORIGINS = [
+    'https://*.vercel.app',
     'http://127.0.0.1:8000',
     'http://localhost:8000',
     'http://127.0.0.1',
     'http://localhost',
 ]
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 26214400  # 25 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 26214400  # 25 MB
 
