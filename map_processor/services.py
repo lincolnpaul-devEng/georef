@@ -449,16 +449,20 @@ def process_map_georeferencing(processed_map_obj) -> Tuple[Dict[str, Any], Dict[
     # Step 1: PDF to Raster Conversion (if PDF)
     if processed_map_obj.is_pdf():
         logger.info(f"Rendering PDF map sheet '{file_full_path}' to raster PNG...")
-        png_bytes = render_pdf_to_raster_image(file_full_path, scale=2.5)
-        pdf_stem = Path(file_full_path).stem
-        preview_filename = f"{pdf_stem}_preview.png"
-        
-        processed_map_obj.raster_preview.save(
-            preview_filename,
-            ContentFile(png_bytes),
-            save=True
-        )
-        vision_image_path = processed_map_obj.raster_preview.path
+        try:
+            png_bytes = render_pdf_to_raster_image(file_full_path, scale=2.0)
+            pdf_stem = Path(file_full_path).stem
+            preview_filename = f"{pdf_stem}_preview.png"
+            
+            processed_map_obj.raster_preview.save(
+                preview_filename,
+                ContentFile(png_bytes),
+                save=False
+            )
+            vision_image_path = processed_map_obj.raster_preview.path
+        except Exception as pdf_err:
+            logger.warning(f"PDF raster preview generation skipped or failed: {pdf_err}")
+            vision_image_path = file_full_path
     else:
         vision_image_path = file_full_path
 

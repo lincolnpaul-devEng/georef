@@ -125,29 +125,37 @@ def upload_view(request):
     if request.method == 'POST':
         form = MapUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            map_obj = form.save(commit=False)
-            map_obj.status = 'PROCESSING'
-            if not map_obj.title:
-                map_obj.title = map_obj.original_image.name
-            map_obj.save()
-
             try:
-                raw_ai_data, transformed_data = process_map_georeferencing(map_obj)
-                map_obj.extracted_data = raw_ai_data
-                map_obj.transformed_data = transformed_data
-                map_obj.status = 'SUCCESS'
-                if not map_obj.title or map_obj.title == map_obj.original_image.name:
-                    map_obj.title = raw_ai_data.get('title', map_obj.original_image.name)
+                map_obj = form.save(commit=False)
+                map_obj.status = 'PROCESSING'
+                if not map_obj.title:
+                    map_obj.title = map_obj.original_image.name
                 map_obj.save()
-                messages.success(request, f"Map '{map_obj.title}' successfully processed and georeferenced!")
-                return redirect('map_processor:dashboard', map_id=map_obj.id)
-            except Exception as e:
-                logger.exception("Error processing map georeferencing")
-                map_obj.status = 'FAILED'
-                map_obj.error_message = str(e)
-                map_obj.save()
-                messages.error(request, f"Failed to georeference map: {str(e)}")
-                return redirect('map_processor:dashboard', map_id=map_obj.id)
+
+                try:
+                    raw_ai_data, transformed_data = process_map_georeferencing(map_obj)
+                    map_obj.extracted_data = raw_ai_data
+                    map_obj.transformed_data = transformed_data
+                    map_obj.status = 'SUCCESS'
+                    if not map_obj.title or map_obj.title == map_obj.original_image.name:
+                        map_obj.title = raw_ai_data.get('title', map_obj.original_image.name)
+                    map_obj.save()
+                    messages.success(request, f"Map '{map_obj.title}' successfully processed and georeferenced!")
+                    return redirect('map_processor:dashboard', map_id=map_obj.id)
+                except Exception as e:
+                    logger.exception("Error processing map georeferencing")
+                    map_obj.status = 'FAILED'
+                    map_obj.error_message = str(e)
+                    try:
+                        map_obj.save()
+                    except Exception:
+                        pass
+                    messages.error(request, f"Georeferencing notice: {str(e)}")
+                    return redirect('map_processor:dashboard', map_id=map_obj.id)
+            except Exception as db_err:
+                logger.exception("Database error while uploading map")
+                messages.error(request, f"Database error during map upload: {str(db_err)}. Please try again.")
+                return redirect('map_processor:upload')
         else:
             messages.error(request, "Please correct the form errors.")
     else:
