@@ -277,11 +277,28 @@
 
                                 <!-- Source Image Tab -->
                                 <div class="tab-pane fade text-center" id="source" role="tabpanel">
-                                    {% if processed_map.original_image %}
+                                    {% if processed_map.is_pdf %}
+                                        {% if processed_map.raster_preview %}
+                                            <a href="{{ processed_map.original_image.url }}" target="_blank">
+                                                <img src="{{ processed_map.raster_preview.url }}" class="img-fluid rounded border border-secondary mb-2" style="max-height: 200px; object-fit: contain;" alt="Scanned PDF Map Preview">
+                                            </a>
+                                            <div class="small text-secondary mb-2">Scanned PDF Map Preview (Page 1)</div>
+                                        {% else %}
+                                            <div class="p-3 bg-dark bg-opacity-50 rounded border border-secondary mb-2">
+                                                <i class="bi bi-file-earmark-pdf-fill text-danger" style="font-size: 2.5rem;"></i>
+                                                <div class="small text-white fw-bold mt-1 text-truncate">{{ processed_map.title|default:"Scanned PDF Sheet" }}</div>
+                                            </div>
+                                        {% endif %}
+                                        <a href="{{ processed_map.original_image.url }}" target="_blank" class="btn btn-outline-info btn-sm rounded-pill px-3 mt-1">
+                                            <i class="bi bi-file-earmark-pdf-fill text-danger me-1"></i> Open Original PDF
+                                        </a>
+                                    {% elif processed_map.original_image %}
                                         <a href="{{ processed_map.original_image.url }}" target="_blank">
-                                            <img src="{{ processed_map.original_image.url }}" class="img-fluid rounded border border-secondary mb-2" style="max-height: 180px;" alt="Source Map">
+                                            <img src="{{ processed_map.original_image.url }}" class="img-fluid rounded border border-secondary mb-2" style="max-height: 200px; object-fit: contain;" alt="Source Map">
                                         </a>
                                         <div class="small text-secondary">Click image to open full resolution</div>
+                                    {% else %}
+                                        <p class="text-secondary small mb-0">No source image available.</p>
                                     {% endif %}
                                 </div>
 
