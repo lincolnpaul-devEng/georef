@@ -11,5 +11,6 @@ urlpatterns = [
     path('dashboard/', views.dashboard_view, name='dashboard_latest'),
     path('dashboard/<int:map_id>/', views.dashboard_view, name='dashboard'),
     path('reprocess/<int:map_id>/', views.reprocess_view, name='reprocess'),
+    path('print/<int:map_id>/', views.print_report_view, name='print_report'),
     path('api/<int:map_id>/', views.map_api_view, name='map_api'),
 ]

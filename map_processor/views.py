@@ -259,6 +259,80 @@ def reprocess_view(request, map_id):
     return redirect('map_processor:dashboard', map_id=map_obj.id)
 
 
+def print_report_view(request, map_id):
+    """
+    Renders the official publication-grade Cartographic Georeferencing Overlay Report
+    with coordinate neatline graticule, golden highlighted control polygon, corner WGS84 pills,
+    center callout badge, and North arrow for landscape PDF/paper printing.
+    """
+    map_obj = get_object_or_404(ProcessedMap, id=map_id)
+    
+    transformed = map_obj.transformed_data or {}
+    extracted = map_obj.extracted_data or {}
+    gcps = transformed.get('ground_control_points') or []
+    metrics = transformed.get('metrics') or {}
+    
+    # Calculate Center & UTM ticks
+    center_lat, center_lng = 0.0, 0.0
+    if transformed.get('center'):
+        center_lat, center_lng = transformed['center']
+    elif gcps:
+        center_lat = sum(g.get('lat', 0) for g in gcps) / len(gcps)
+        center_lng = sum(g.get('lng', 0) for g in gcps) / len(gcps)
+
+    # Resolve Easting & Northing ticks
+    eastings = sorted(list(set(int(g['easting']) for g in gcps if g.get('easting'))))
+    northings = sorted(list(set(int(g['northing']) for g in gcps if g.get('northing'))))
+
+    # Center UTM
+    center_easting = int(sum(eastings) / len(eastings)) if eastings else 696860
+    center_northing = int(sum(northings) / len(northings)) if northings else 9991575
+
+    datum_label = f"{transformed.get('datum_used') or map_obj.datum or 'Arc 1960'} / UTM zone {transformed.get('utm_zone_used') or map_obj.utm_zone or 36}{transformed.get('hemisphere_used') or map_obj.hemisphere or 'S'}"
+
+    # Corner points mapping (NW, NE, SE, SW)
+    nw_pt = next((g for g in gcps if 'NW' in g.get('label', '') or 'Top-Left' in g.get('label', '')), gcps[0] if len(gcps) > 0 else {})
+    ne_pt = next((g for g in gcps if 'NE' in g.get('label', '') or 'Top-Right' in g.get('label', '')), gcps[1] if len(gcps) > 1 else {})
+    se_pt = next((g for g in gcps if 'SE' in g.get('label', '') or 'Bottom-Right' in g.get('label', '')), gcps[2] if len(gcps) > 2 else {})
+    sw_pt = next((g for g in gcps if 'SW' in g.get('label', '') or 'Bottom-Left' in g.get('label', '')), gcps[3] if len(gcps) > 3 else {})
+
+    map_json_data = {
+        'id': map_obj.id,
+        'title': map_obj.title,
+        'status': map_obj.status,
+        'image_url': getattr(map_obj, 'display_url', '') or '',
+        'is_pdf': map_obj.is_pdf(),
+        'datum': map_obj.datum,
+        'utm_zone': map_obj.utm_zone,
+        'hemisphere': map_obj.hemisphere,
+        'extracted_data': extracted,
+        'transformed_data': transformed,
+    }
+
+    mapbox_token = getattr(settings, 'MAPBOX_ACCESS_TOKEN', '') or ''
+
+    return render(request, 'map_processor/print_report.html', {
+        'processed_map': map_obj,
+        'transformed': transformed,
+        'extracted': extracted,
+        'metrics': metrics,
+        'gcps': gcps,
+        'nw_pt': nw_pt,
+        'ne_pt': ne_pt,
+        'se_pt': se_pt,
+        'sw_pt': sw_pt,
+        'center_lat': center_lat,
+        'center_lng': center_lng,
+        'center_easting': center_easting,
+        'center_northing': center_northing,
+        'eastings': eastings,
+        'northings': northings,
+        'datum_label': datum_label,
+        'map_json_data': json.dumps(map_json_data),
+        'mapbox_token': mapbox_token,
+    })
+
+
 def map_api_view(request, map_id):
     """
     API endpoint providing GeoJSON and bounds data for client side apps.

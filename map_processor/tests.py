@@ -194,6 +194,13 @@ class ViewsIntegrationTestCase(TestCase):
         self.assertContains(response, "Kisumu Topographic Sheet 116/2")
         self.assertContains(response, "GCP-1")
 
+    def test_print_report_view(self):
+        response = self.client.get(reverse('map_processor:print_report', args=[self.processed_map.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "GEOREFERENCED MODERN OVERLAY")
+        self.assertContains(response, "Kisumu Topographic Sheet 116/2")
+        self.assertContains(response, "Print / Save PDF")
+
     def test_geojson_api_endpoint(self):
         response = self.client.get(reverse('map_processor:map_api', args=[self.processed_map.id]))
         self.assertEqual(response.status_code, 200)

@@ -70,6 +70,10 @@
                         </ul>
                     </div>
 
+                    <a href="{% url 'map_processor:print_report' processed_map.id %}" target="_blank" class="btn btn-outline-warning btn-sm rounded-pill px-3 shadow-sm d-none d-sm-inline-flex align-items-center" title="Print publication-grade georeferenced modern overlay certificate">
+                        <i class="bi bi-printer-fill me-1"></i> Print Report
+                    </a>
+
                     <a href="{% url 'map_processor:upload' %}" class="btn btn-primary btn-sm rounded-pill px-3">
                         <i class="bi bi-plus-lg me-1"></i> Upload Map
                     </a>
@@ -77,6 +81,9 @@
                     <!-- Unverified Demo Viewer Controls -->
                     <a href="{% url 'map_processor:landing' %}#verify-access-section" class="btn btn-outline-info btn-sm rounded-pill px-3 fw-semibold">
                         <i class="bi bi-shield-lock-fill me-1"></i> Verify Access
+                    </a>
+                    <a href="{% url 'map_processor:print_report' processed_map.id %}" target="_blank" class="btn btn-outline-warning btn-sm rounded-pill px-3 shadow-sm d-none d-sm-inline-flex align-items-center">
+                        <i class="bi bi-printer-fill me-1"></i> Print Report
                     </a>
                     <a href="{% url 'map_processor:landing' %}#verify-access-section" class="btn btn-primary btn-sm rounded-pill px-3 text-white" title="Verify access to unlock uploading">
                         <i class="bi bi-lock-fill me-1"></i> Upload Map
@@ -109,6 +116,9 @@
 
                     <!-- Quick Toolbar on Left -->
                     <div class="map-quick-toolbar">
+                        <a href="{% url 'map_processor:print_report' processed_map.id %}" target="_blank" class="map-toolbar-btn text-decoration-none" title="Open Publication Print Report">
+                            <i class="bi bi-printer-fill text-warning"></i> <span>Print Report</span>
+                        </a>
                         <button id="btnToggle3D" class="map-toolbar-btn" title="Toggle 3D Terrain Relief and Pitch">
                             <i class="bi bi-badge-3d-fill text-warning"></i> <span>3D Terrain</span>
                         </button>
@@ -294,6 +304,9 @@
                                         <i class="bi bi-lock-fill me-1"></i> Reprocess (Locked)
                                     </a>
                                 {% endif %}
+                                <a href="{% url 'map_processor:print_report' processed_map.id|default:0 %}" target="_blank" class="btn btn-sm btn-warning fw-semibold shadow-sm">
+                                    <i class="bi bi-printer-fill me-1"></i> Print Report
+                                </a>
                                 {% if processed_map.is_real %}
                                     <a href="{% url 'map_processor:map_api' processed_map.id %}" target="_blank" class="btn btn-sm btn-outline-info">
                                         <i class="bi bi-code-slash me-1"></i> GeoJSON API
