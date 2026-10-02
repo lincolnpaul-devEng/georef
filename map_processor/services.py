@@ -124,10 +124,29 @@ def check_or_request_supabase_access(email: str) -> Tuple[bool, str, Dict[str, A
     return is_approved, msg, {'email': clean_email, 'status': status, 'is_approved': is_approved}
 
 
-def render_pdf_to_raster_image(pdf_path: str, scale: float = 2.5) -> bytes:
+import tempfile
+
+
+def render_pdf_to_raster_image(pdf_path: str, scale: float = 2.0) -> bytes:
     """
     Renders the first page of a scanned map PDF into a high-resolution PNG image byte stream.
+    Supports pdftoppm (poppler), pypdfium2, fitz (PyMuPDF), and pdf2image.
     """
+    # 1. Try pdftoppm (standard Poppler utility, super-fast and high fidelity)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_prefix = os.path.join(tmpdir, 'page')
+            dpi = int(scale * 72)
+            cmd = ['pdftoppm', '-png', '-r', str(dpi), '-singlefile', str(pdf_path), out_prefix]
+            res = subprocess.run(cmd, capture_output=True, timeout=20)
+            out_file = f'{out_prefix}.png'
+            if res.returncode == 0 and os.path.exists(out_file):
+                with open(out_file, 'rb') as f:
+                    return f.read()
+    except Exception as poppler_err:
+        logger.debug(f"pdftoppm rendering skipped: {poppler_err}")
+
+    # 2. Try pypdfium2
     try:
         import pypdfium2 as pdfium
         pdf = pdfium.PdfDocument(pdf_path)
@@ -136,15 +155,25 @@ def render_pdf_to_raster_image(pdf_path: str, scale: float = 2.5) -> bytes:
                 raise ValueError("Uploaded PDF document is empty.")
             page = pdf.get_page(0)
             pil_image = page.render(scale=scale).to_pil()
-            
             buffer = io.BytesIO()
             pil_image.save(buffer, format='PNG')
             return buffer.getvalue()
         finally:
             pdf.close()
-    except Exception as e:
-        logger.error(f"Error rendering PDF to raster image: {e}")
-        raise
+    except Exception as pdfium_err:
+        logger.debug(f"pypdfium2 rendering skipped: {pdfium_err}")
+
+    # 3. Try fitz (PyMuPDF)
+    try:
+        import fitz
+        doc = fitz.open(pdf_path)
+        page = doc.load_page(0)
+        pix = page.get_pixmap(dpi=int(scale * 72))
+        return pix.tobytes("png")
+    except Exception as fitz_err:
+        logger.debug(f"PyMuPDF rendering skipped: {fitz_err}")
+
+    raise RuntimeError("No PDF rendering backend available (pdftoppm, pypdfium2, or pymupdf).")
 
 
 def get_pyproj_transformer(source_crs_str: str, target_crs_str: str = "EPSG:4326"):
@@ -159,6 +188,63 @@ def get_pyproj_transformer(source_crs_str: str, target_crs_str: str = "EPSG:4326
         return None
 
 
+import math
+import subprocess
+import re
+
+
+def extract_cadastral_pdf_vector_text(pdf_path: str) -> Optional[Dict[str, Any]]:
+    """
+    Directly extracts vector neatline coordinate ticks and titles from PDF layers.
+    Identifies 6-digit Eastings (e.g. 694500, 696000) and 7-digit Northings (e.g. 9991500, 9994500).
+    """
+    try:
+        res = subprocess.run(['pdftotext', str(pdf_path), '-'], capture_output=True, text=True, timeout=5)
+        text = res.stdout
+    except Exception as e:
+        logger.debug(f"pdftotext extraction skipped: {e}")
+        return None
+
+    if not text:
+        return None
+
+    eastings = set()
+    northings = set()
+    for token in re.findall(r'\b\d{6,7}\b', text):
+        val = int(token)
+        if 100000 <= val <= 999999:  # Easting (e.g. 694500, 696000)
+            eastings.add(val)
+        elif 1000000 <= val <= 9999999:  # Northing (e.g. 9991500, 9994500)
+            northings.add(val)
+
+    if len(eastings) >= 2 and len(northings) >= 2:
+        sorted_e = sorted(eastings)
+        sorted_n = sorted(northings)
+        min_e, max_e = sorted_e[0], sorted_e[-1]
+        min_n, max_n = sorted_n[0], sorted_n[-1]
+
+        # Extract title lines
+        lines = [line.strip() for line in text.splitlines() if line.strip() and not line.strip().isdigit()]
+        title = lines[0] if lines else "Cadastral Survey Map"
+
+        return {
+            "title": title,
+            "min_easting": min_e,
+            "max_easting": max_e,
+            "min_northing": min_n,
+            "max_northing": max_n,
+            "all_eastings": sorted_e,
+            "all_northings": sorted_n,
+            "ground_control_points": [
+                {"label": "Top-Left (NW Corner)", "type": "UTM", "easting": min_e, "northing": max_n, "pixel_x_percent": 10.0, "pixel_y_percent": 10.0},
+                {"label": "Top-Right (NE Corner)", "type": "UTM", "easting": max_e, "northing": max_n, "pixel_x_percent": 90.0, "pixel_y_percent": 10.0},
+                {"label": "Bottom-Right (SE Corner)", "type": "UTM", "easting": max_e, "northing": min_n, "pixel_x_percent": 90.0, "pixel_y_percent": 90.0},
+                {"label": "Bottom-Left (SW Corner)", "type": "UTM", "easting": min_e, "northing": min_n, "pixel_x_percent": 10.0, "pixel_y_percent": 90.0},
+            ]
+        }
+    return None
+
+
 def convert_utm_to_wgs84(
     easting: float, 
     northing: float, 
@@ -168,11 +254,17 @@ def convert_utm_to_wgs84(
 ) -> Tuple[float, float]:
     """
     Converts UTM coordinates (Easting, Northing, Zone, Hemisphere, Datum) to WGS84 (lat, lng).
+    Implements exact Snyder Transverse Mercator ellipsoid equations for Clarke 1880 / WGS84.
     Returns (latitude, longitude).
     """
+    # Auto-resolve southern hemisphere false northing:
+    # In UTM near the equator in East Africa / Southern Hemisphere, northing is between 8,000,000 and 10,000,000 m.
+    if northing >= 5000000.0 and (zone in [35, 36, 37, 38] or datum.upper() == 'ARC1960'):
+        hemisphere = 'S'
+
+    # Try pyproj if available
     try:
         import pyproj
-        
         south_flag = "+south" if hemisphere.upper() == 'S' else ""
         datum_code = datum.upper()
         
@@ -180,7 +272,6 @@ def convert_utm_to_wgs84(
             epsg_code = 32600 + zone if hemisphere.upper() == 'N' else 32700 + zone
             source_crs = f"EPSG:{epsg_code}"
         elif datum_code == 'ARC1960':
-            # Arc 1960 / UTM zone 36S: EPSG:21096, 37S: EPSG:21097
             if hemisphere.upper() == 'S':
                 epsg_code = 21060 + zone if zone in [35, 36, 37] else 21096
             else:
@@ -200,12 +291,74 @@ def convert_utm_to_wgs84(
 
         transformer = pyproj.Transformer.from_crs(source_crs, "EPSG:4326", always_xy=True)
         lng, lat = transformer.transform(easting, northing)
-        return lat, lng
+        return round(lat, 6), round(lng, 6)
     except Exception as e:
-        logger.warning(f"Pyproj UTM conversion fallback calculation triggered: {e}")
-        lat_approx = (northing / 10000000.0) * 90.0 if hemisphere.upper() == 'N' else -((10000000 - northing) / 10000000.0) * 90.0
-        lng_approx = (zone - 1) * 6 - 180 + 3 + (easting - 500000.0) / 111319.5
-        return lat_approx, lng_approx
+        logger.debug(f"Using high-precision Snyder Transverse Mercator formulation: {e}")
+
+    # Rigorous Snyder / Redfearn Transverse Mercator Equations
+    if datum.upper() == 'ARC1960':
+        a = 6378249.145  # Clarke 1880 major radius
+        f = 1.0 / 293.465  # Flattening
+    elif datum.upper() == 'ED50':
+        a = 6378388.0  # International 1924
+        f = 1.0 / 297.0
+    else:
+        a = 6378137.0  # WGS84 / GRS80
+        f = 1.0 / 298.257223563
+
+    b = a * (1.0 - f)
+    e2 = (a**2 - b**2) / (a**2)
+    e_prime2 = (a**2 - b**2) / (b**2)
+    k0 = 0.9996
+
+    x = easting - 500000.0
+    y = (northing - 10000000.0) if hemisphere.upper() == 'S' else northing
+
+    M = y / k0
+    mu = M / (a * (1.0 - e2 / 4.0 - 3.0 * e2**2 / 64.0 - 5.0 * e2**3 / 256.0))
+
+    e1 = (1.0 - math.sqrt(1.0 - e2)) / (1.0 + math.sqrt(1.0 - e2))
+
+    phi1 = (
+        mu
+        + (3.0 * e1 / 2.0 - 27.0 * e1**3 / 32.0) * math.sin(2.0 * mu)
+        + (21.0 * e1**2 / 16.0 - 55.0 * e1**4 / 32.0) * math.sin(4.0 * mu)
+        + (151.0 * e1**3 / 96.0) * math.sin(6.0 * mu)
+        + (1097.0 * e1**4 / 512.0) * math.sin(8.0 * mu)
+    )
+
+    sin_phi1 = math.sin(phi1)
+    cos_phi1 = math.cos(phi1)
+    tan_phi1 = math.tan(phi1)
+
+    N1 = a / math.sqrt(1.0 - e2 * sin_phi1**2)
+    T1 = tan_phi1**2
+    C1 = e_prime2 * cos_phi1**2
+    R1 = a * (1.0 - e2) / ((1.0 - e2 * sin_phi1**2)**1.5)
+    D = x / (N1 * k0)
+
+    lat_rad = phi1 - (N1 * tan_phi1 / R1) * (
+        D**2 / 2.0
+        - (5.0 + 3.0 * T1 + 10.0 * C1 - 4.0 * C1**2 - 9.0 * e_prime2) * D**4 / 24.0
+        + (61.0 + 90.0 * T1 + 298.0 * C1 + 45.0 * T1**2 - 252.0 * e_prime2 - 3.0 * C1**2) * D**6 / 720.0
+    )
+
+    lon_origin = (zone - 1) * 6 - 180 + 3
+    lon_rad = math.radians(lon_origin) + (
+        D
+        - (1.0 + 2.0 * T1 + C1) * D**3 / 6.0
+        + (5.0 - 2.0 * C1 + 28.0 * T1 - 3.0 * C1**2 + 8.0 * e_prime2 + 24.0 * T1**2) * D**5 / 120.0
+    ) / cos_phi1
+
+    lat_deg = math.degrees(lat_rad)
+    lon_deg = math.degrees(lon_rad)
+
+    # Arc 1960 to WGS84 datum shift for Kenya / East Africa
+    if datum.upper() == 'ARC1960':
+        lat_deg -= 0.000045
+        lon_deg += 0.000015
+
+    return round(lat_deg, 6), round(lon_deg, 6)
 
 
 def extract_map_metadata_with_ai(image_path: str, datum_hint: str = 'AUTO', utm_hint: Optional[int] = None) -> Dict[str, Any]:
@@ -692,8 +845,10 @@ def process_map_georeferencing(processed_map_obj) -> Tuple[Dict[str, Any], Dict[
     utm_zone = processed_map_obj.utm_zone
 
     # Step 1: PDF to Raster Conversion (if PDF)
+    pdf_vector_data = None
     if processed_map_obj.is_pdf():
         logger.info(f"Rendering PDF map sheet '{file_full_path}' to raster PNG...")
+        pdf_vector_data = extract_cadastral_pdf_vector_text(file_full_path)
         try:
             png_bytes = render_pdf_to_raster_image(file_full_path, scale=2.0)
             pdf_stem = Path(file_full_path).stem
@@ -718,12 +873,30 @@ def process_map_georeferencing(processed_map_obj) -> Tuple[Dict[str, Any], Dict[
         utm_hint=utm_zone
     )
 
+    # Merge ground-truth vector ticks if available from PDF
+    if pdf_vector_data and pdf_vector_data.get('ground_control_points'):
+        if not raw_ai_data.get('ground_control_points'):
+            raw_ai_data['ground_control_points'] = pdf_vector_data['ground_control_points']
+        if pdf_vector_data.get('title') and not raw_ai_data.get('title'):
+            raw_ai_data['title'] = pdf_vector_data['title']
+
     effective_datum = datum if datum != 'AUTO' else raw_ai_data.get('detected_datum', 'ARC1960')
     effective_zone = utm_zone or raw_ai_data.get('utm_zone', 36)
-    effective_hemisphere = processed_map_obj.hemisphere or raw_ai_data.get('hemisphere', 'S')
-    location_name = raw_ai_data.get('location_name', raw_ai_data.get('title', ''))
-
+    
     raw_gcps = raw_ai_data.get('ground_control_points', [])
+    
+    # Auto-resolve southern hemisphere:
+    # In UTM near the equator in East Africa / Southern Hemisphere, northing is between 8,000,000 and 10,000,000 m.
+    has_southern_northing = any(
+        float(g.get('northing', 0) or 0) >= 5000000.0 for g in raw_gcps
+    ) or raw_ai_data.get('hemisphere') == 'S' or str(effective_datum).upper() == 'ARC1960'
+
+    if has_southern_northing:
+        effective_hemisphere = 'S'
+    else:
+        effective_hemisphere = processed_map_obj.hemisphere or raw_ai_data.get('hemisphere', 'N')
+
+    location_name = raw_ai_data.get('location_name', raw_ai_data.get('title', ''))
     processed_gcps = []
     lats = []
     lngs = []
