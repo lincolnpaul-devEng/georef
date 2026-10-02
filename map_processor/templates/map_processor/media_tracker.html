@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoRef Studio | Field Media GPS Tracker & Exif Extractor</title>
+    <!-- Bootstrap 5 CSS & Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Mapbox GL JS -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <style>
+        body {
+            background-color: #0b1120 !important;
+            color: #f1f5f9 !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        .navbar {
+            background-color: #0f172a !important;
+            border-bottom: 1px solid #334155 !important;
+        }
+        .tracker-badge {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #ffffff;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .card-custom {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 12px;
+        }
+        .card-header-custom {
+            background-color: rgba(255, 255, 255, 0.03) !important;
+            border-bottom: 1px solid #334155 !important;
+            color: #ffffff !important;
+        }
+        .dropzone-media {
+            border: 2px dashed #10b981;
+            background: rgba(16, 185, 129, 0.04);
+            border-radius: 12px;
+            padding: 2.5rem 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s ease-in-out;
+        }
+        .dropzone-media:hover, .dropzone-media.dragover {
+            background: rgba(16, 185, 129, 0.12);
+            border-color: #34d399;
+            transform: translateY(-2px);
+        }
+        .stat-card {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        .stat-value {
+            font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+            color: #38bdf8;
+            font-weight: 700;
+        }
+        #evidenceMap {
+            width: 100%;
+            height: 480px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+        }
+        @media (max-width: 768px) {
+            #evidenceMap {
+                height: 320px !important;
+            }
+            .dropzone-media {
+                padding: 1.5rem 1rem !important;
+            }
+            .card-body {
+                padding: 1rem !important;
+            }
+        }
+        .nav-pills-custom .nav-link {
+            color: #94a3b8;
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+        .nav-pills-custom .nav-link.active {
+            background-color: #10b981;
+            color: #ffffff;
+        }
+        .exif-table th {
+            color: #94a3b8;
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+        .exif-table td {
+            color: #e2e8f0;
+            font-size: 0.85rem;
+            font-family: "SF Mono", Menlo, monospace;
+        }
+    </style>
+</head>
+<body class="d-flex flex-column min-vh-100">
+
+    <!-- Header Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+        <div class="container-fluid px-3 px-md-4">
+            <a class="navbar-brand d-flex align-items-center gap-2" href="{% url 'map_processor:landing' %}">
+                <i class="bi bi-shield-shaded text-success fs-4"></i>
+                <div>
+                    <span class="text-white fw-bold">georef</span><span class="text-success">.evidence</span>
+                    <span class="badge tracker-badge ms-1 ms-md-2 px-2 py-1 d-none d-sm-inline-block">ExifTool GPS</span>
+                </div>
+            </a>
+            
+            <div class="d-flex align-items-center gap-2 gap-md-3">
+                <!-- Desktop Mode Switcher Tabs -->
+                <div class="d-none d-md-flex bg-dark p-1 rounded-pill border border-secondary border-opacity-50">
+                    <a href="{% url 'map_processor:upload' %}" class="btn btn-sm text-secondary rounded-pill px-3">
+                        <i class="bi bi-map me-1"></i> 1. Survey Maps (PDF)
+                    </a>
+                    <a href="{% url 'map_processor:media_tracker' %}" class="btn btn-sm btn-success rounded-pill px-3 shadow-sm">
+                        <i class="bi bi-camera-video me-1"></i> 2. Media GPS Tracker
+                    </a>
+                </div>
+
+                <!-- User Session -->
+                <div class="dropdown">
+                    <button class="btn btn-dark btn-sm d-flex align-items-center gap-2 rounded-pill px-2 px-md-3 py-1 border border-secondary border-opacity-50" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="{{ verified_email }}">
+                        <div class="user-avatar-circle" style="background: #059669;">{{ verified_email|slice:":1"|upper }}</div>
+                        <span class="small text-white text-truncate d-none d-lg-inline" style="max-width: 140px;">{{ verified_email }}</span>
+                        <i class="bi bi-chevron-down text-secondary" style="font-size: 10px;"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end shadow border-secondary border-opacity-50">
+                        <li class="dropdown-header text-muted small"><i class="bi bi-patch-check-fill text-success me-1"></i> Verified Official</li>
+                        <li><span class="dropdown-item-text small fw-bold text-white text-truncate" style="max-width: 220px;">{{ verified_email }}</span></li>
+                        <li><hr class="dropdown-divider border-secondary border-opacity-50"></li>
+                        <li><a class="dropdown-item small text-danger" href="{% url 'map_processor:logout_access' %}"><i class="bi bi-box-arrow-right me-2"></i> Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Mobile Switcher Banner (Visible on Mobile Only) -->
+    <div class="d-md-none bg-dark py-2 px-3 border-bottom border-secondary border-opacity-25">
+        <div class="d-flex gap-2">
+            <a href="{% url 'map_processor:upload' %}" class="btn btn-outline-secondary btn-sm flex-fill rounded-pill py-1 small">
+                <i class="bi bi-map"></i> 1. Survey Maps
+            </a>
+            <a href="{% url 'map_processor:media_tracker' %}" class="btn btn-success btn-sm flex-fill rounded-pill py-1 small fw-bold">
+                <i class="bi bi-camera-video"></i> 2. Media GPS
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="container my-3 my-md-4 flex-grow-1">
+
+        <!-- Messages -->
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show shadow-sm border-0" role="alert">
+                    <i class="bi bi-info-circle-fill me-2"></i>{{ message }}
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <!-- Header Title Banner -->
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 gap-3">
+            <div>
+                <h4 class="fw-bold text-white mb-1">
+                    <i class="bi bi-geo-fill text-success me-2"></i>Field Incident &amp; Citizen Media GPS Tracker
+                </h4>
+                <p class="text-secondary small mb-0">
+                    Extract embedded geospatial telemetry (GPS coordinates, altitude, compass heading, timestamp) directly from raw citizen photos and bodycam/drone video footage.
+                </p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{% url 'map_processor:upload' %}" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
+                    <i class="bi bi-arrow-left-right me-1"></i> Switch to Scanned Map Georeferencer
+                </a>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Left Column: Upload Form & Live Preview -->
+            <div class="col-lg-5">
+                <!-- Upload Card -->
+                <div class="card card-custom mb-4 shadow">
+                    <div class="card-header-custom d-flex justify-content-between align-items-center py-3 px-4">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-file-earmark-arrow-up-fill text-success fs-5"></i>
+                            <span class="fs-6 fw-bold text-white">Upload Incident Evidence</span>
+                        </div>
+                        <span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-50 px-2 py-1">
+                            <i class="bi bi-terminal me-1"></i> ExifTool Native
+                        </span>
+                    </div>
+                    <div class="card-body p-4">
+                        <form method="POST" enctype="multipart/form-data" id="mediaUploadForm">
+                            {% csrf_token %}
+
+                            <div class="mb-3">
+                                <label for="{{ form.title.id_for_label }}" class="form-label text-light small fw-bold">Incident Reference / Log ID (Optional)</label>
+                                {{ form.title }}
+                                {% if form.title.errors %}
+                                    <div class="text-danger small mt-1">{{ form.title.errors }}</div>
+                                {% endif %}
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="form-label text-light small fw-bold">Raw Photo or Video Evidence</label>
+                                <div class="dropzone-media" id="mediaDropzone">
+                                    <div class="d-flex justify-content-center align-items-center gap-3 mb-2">
+                                        <i class="bi bi-camera-fill text-success fs-2"></i>
+                                        <i class="bi bi-camera-reels-fill text-info fs-2"></i>
+                                        <i class="bi bi-phone-fill text-warning fs-2"></i>
+                                    </div>
+                                    <span class="fw-bold text-white fs-6 d-block">Click to select or drag &amp; drop media</span>
+                                    <p class="text-secondary small mt-1 mb-0">
+                                        Photos (<strong>JPEG, PNG, HEIC, TIFF</strong>) or Videos (<strong>MP4, MOV, MKV</strong>)
+                                    </p>
+                                    <div class="d-none">
+                                        {{ form.media_file }}
+                                    </div>
+                                    <div id="mediaFileLabel" class="mt-3 text-success fw-bold small d-none"></div>
+                                </div>
+                                {% if form.media_file.errors %}
+                                    <div class="text-danger small mt-1">{{ form.media_file.errors }}</div>
+                                {% endif %}
+                            </div>
+
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-success btn-lg py-3 fw-bold shadow-sm" id="extractBtn">
+                                    <i class="bi bi-crosshair me-2"></i> Extract GPS Location &amp; Pinpoint
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Media Preview Card (if uploaded) -->
+                {% if media_url %}
+                <div class="card card-custom shadow">
+                    <div class="card-header-custom d-flex justify-content-between align-items-center py-2 px-3">
+                        <span class="small fw-bold text-white"><i class="bi bi-eye me-1"></i> Media Preview: {{ media_name }}</span>
+                        <span class="badge bg-secondary text-white small">{{ media_type|upper }}</span>
+                    </div>
+                    <div class="card-body p-2 text-center bg-black bg-opacity-50">
+                        {% if media_type == 'video' %}
+                            <video src="{{ media_url }}" controls class="img-fluid rounded" style="max-height: 280px; width: 100%;"></video>
+                        {% else %}
+                            <img src="{{ media_url }}" alt="Evidence Photo" class="img-fluid rounded" style="max-height: 280px; object-fit: contain;">
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Right Column: Interactive Mapbox Satellite Pinpoint & Exif Metadata -->
+            <div class="col-lg-7">
+                <!-- Location Pinpoint Card -->
+                <div class="card card-custom shadow mb-4">
+                    <div class="card-header-custom d-flex justify-content-between align-items-center py-3 px-4">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-pin-map-fill text-success fs-5"></i>
+                            <span class="fs-6 fw-bold text-white">Geospatial Location Pinpoint</span>
+                        </div>
+                        {% if exif_result and exif_result.has_gps %}
+                            <span class="badge bg-success text-white px-3 py-1">
+                                <i class="bi bi-check-circle-fill me-1"></i> GPS Locked ({{ exif_result.latitude }}°, {{ exif_result.longitude }}°)
+                            </span>
+                        {% elif exif_result %}
+                            <span class="badge bg-warning text-dark px-3 py-1">
+                                <i class="bi bi-exclamation-triangle-fill me-1"></i> No Embedded GPS
+                            </span>
+                        {% else %}
+                            <span class="badge bg-secondary text-white px-3 py-1">Awaiting Media Upload</span>
+                        {% endif %}
+                    </div>
+                    <div class="card-body p-3">
+                        <!-- Map Container -->
+                        <div id="evidenceMap"></div>
+
+                        {% if exif_result and exif_result.has_gps %}
+                            <!-- Quick Stat Pills -->
+                            <div class="row g-2 mt-3">
+                                <div class="col-sm-6 col-md-3">
+                                    <div class="stat-card">
+                                        <div class="text-secondary small">Latitude</div>
+                                        <div class="stat-value fs-6">{{ exif_result.latitude }}°</div>
+                                    </div>
+                                </div>
+                                <div class="col-sm-6 col-md-3">
+                                    <div class="stat-card">
+                                        <div class="text-secondary small">Longitude</div>
+                                        <div class="stat-value fs-6">{{ exif_result.longitude }}°</div>
+                                    </div>
+                                </div>
+                                <div class="col-sm-6 col-md-3">
+                                    <div class="stat-card">
+                                        <div class="text-secondary small">Altitude</div>
+                                        <div class="stat-value fs-6">
+                                            {% if exif_result.altitude_m %}{{ exif_result.altitude_m }} m{% else %}N/A{% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-sm-6 col-md-3">
+                                    <div class="stat-card">
+                                        <div class="text-secondary small">Compass Heading</div>
+                                        <div class="stat-value fs-6">
+                                            {% if exif_result.heading_deg %}{{ exif_result.heading_deg }}°{% else %}N/A{% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Exif Technical Metadata Card -->
+                {% if exif_result %}
+                <div class="card card-custom shadow mb-4">
+                    <div class="card-header-custom d-flex justify-content-between align-items-center py-3 px-4">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-code-slash text-info fs-5"></i>
+                            <span class="fs-6 fw-bold text-white">Extracted Hardware &amp; Exif Metadata</span>
+                        </div>
+                        <span class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-50">
+                            {{ exif_result.mime_type }}
+                        </span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-dark table-striped mb-0 exif-table">
+                                <tbody>
+                                    <tr>
+                                        <th style="width: 35%;">Camera Make</th>
+                                        <td>{{ exif_result.make|default:"Unknown / Not Specified" }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Device Model</th>
+                                        <td>{{ exif_result.model|default:"Unknown / Not Specified" }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Capture Timestamp</th>
+                                        <td>{{ exif_result.timestamp|default:"Not Available" }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>GPS Latitude</th>
+                                        <td class="text-success fw-bold">{{ exif_result.latitude|default:"None" }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>GPS Longitude</th>
+                                        <td class="text-success fw-bold">{{ exif_result.longitude|default:"None" }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>File Size</th>
+                                        <td>{{ exif_result.file_size_bytes }} bytes</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Forensic Provenance & Integrity Audit Card -->
+                {% if exif_result.forensics %}
+                <div class="card card-custom shadow border-{% if exif_result.forensics.badge_class == 'danger' %}danger{% elif exif_result.forensics.badge_class == 'warning' %}warning{% else %}success{% endif %} border-opacity-50">
+                    <div class="card-header-custom d-flex justify-content-between align-items-center py-3 px-4">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-fingerprint fs-5 text-{% if exif_result.forensics.badge_class == 'danger' %}danger{% elif exif_result.forensics.badge_class == 'warning' %}warning{% else %}success{% endif %}"></i>
+                            <span class="fs-6 fw-bold text-white">Digital Provenance &amp; Forensic Audit</span>
+                        </div>
+                        <span class="badge bg-{{ exif_result.forensics.badge_class }} text-white px-3 py-1">
+                            {{ exif_result.forensics.status_label }}
+                        </span>
+                    </div>
+                    <div class="card-body p-4">
+                        <!-- Integrity Diagnostic Alert -->
+                        <div class="alert alert-{% if exif_result.forensics.badge_class == 'danger' %}danger{% elif exif_result.forensics.badge_class == 'warning' %}warning{% else %}success{% endif %} bg-opacity-10 border border-{% if exif_result.forensics.badge_class == 'danger' %}danger{% elif exif_result.forensics.badge_class == 'warning' %}warning{% else %}success{% endif %} border-opacity-25 rounded-3 mb-3">
+                            <div class="d-flex align-items-start gap-2">
+                                <i class="bi bi-info-circle-fill fs-5 text-{{ exif_result.forensics.badge_class }} mt-1"></i>
+                                <div>
+                                    <div class="fw-bold text-white mb-1">Forensic Finding:</div>
+                                    <div class="small text-light">{{ exif_result.forensics.missing_gps_reason }}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Technical Forensic Breakdown -->
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <div class="stat-card">
+                                    <div class="text-secondary small">Detected Software / Encoder:</div>
+                                    <div class="text-info fw-bold small mt-1 font-monospace">{{ exif_result.forensics.detected_encoder }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="stat-card">
+                                    <div class="text-secondary small">JPEG / Container Segments:</div>
+                                    <div class="text-light small mt-1 font-monospace">
+                                        {% if exif_result.forensics.marker_structure %}
+                                            {{ exif_result.forensics.marker_structure|join:", " }}
+                                        {% else %}
+                                            Standard Media Stream
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Actionable Field Guidance -->
+                        <div class="p-3 bg-dark bg-opacity-75 rounded-3 border border-secondary border-opacity-25">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <i class="bi bi-shield-check text-primary"></i>
+                                <span class="small fw-bold text-white">Official Field Procedure / Action:</span>
+                            </div>
+                            <p class="small text-secondary mb-0">
+                                {{ exif_result.forensics.field_guidance }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center text-secondary py-3 small border-top border-secondary border-opacity-25 mt-auto bg-dark">
+        georef.evidence &bull; Internal Government Incident Verification System &bull; Powered by ExifTool &amp; Mapbox Satellite
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const dropzone = document.getElementById('mediaDropzone');
+        const fileInput = document.querySelector('input[type="file"]');
+        const fileLabel = document.getElementById('mediaFileLabel');
+        const form = document.getElementById('mediaUploadForm');
+        const extractBtn = document.getElementById('extractBtn');
+
+        if (dropzone && fileInput) {
+            dropzone.addEventListener('click', () => fileInput.click());
+
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('dragover');
+            });
+
+            dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+                if (e.dataTransfer.files.length) {
+                    fileInput.files = e.dataTransfer.files;
+                    updateFileLabel();
+                }
+            });
+
+            fileInput.addEventListener('change', updateFileLabel);
+
+            function updateFileLabel() {
+                if (fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    fileLabel.textContent = `Selected: ${file.name} (${(file.size / (1024*1024)).toFixed(2)} MB)`;
+                    fileLabel.classList.remove('d-none');
+                }
+            }
+        }
+
+        if (form) {
+            form.addEventListener('submit', () => {
+                extractBtn.disabled = true;
+                extractBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span> Extracting Geospatial Exif Data...';
+            });
+        }
+
+        // Initialize Mapbox Map
+        const mapboxToken = "{{ mapbox_token|default:'' }}";
+        const exifData = {{ exif_result_json|safe|default:'null' }};
+
+        mapboxgl.accessToken = mapboxToken;
+
+
+        let defaultCenter = [36.8219, -1.2921]; // Nairobi default
+        let defaultZoom = 5;
+
+        if (exifData && exifData.has_gps && exifData.latitude && exifData.longitude) {
+            defaultCenter = [exifData.longitude, exifData.latitude];
+            defaultZoom = 16;
+        }
+
+        const map = new mapboxgl.Map({
+            container: 'evidenceMap',
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
+            center: defaultCenter,
+            zoom: defaultZoom
+        });
+
+        map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+        map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+
+        map.on('load', () => {
+            if (exifData && exifData.has_gps && exifData.latitude && exifData.longitude) {
+                // Add Marker for Incident
+                const el = document.createElement('div');
+                el.className = 'custom-marker';
+                el.style.width = '32px';
+                el.style.height = '32px';
+                el.style.borderRadius = '50%';
+                el.style.backgroundColor = '#10b981';
+                el.style.border = '3px solid #ffffff';
+                el.style.boxShadow = '0 0 15px rgba(16, 185, 129, 0.9)';
+                el.style.display = 'flex';
+                el.style.alignItems = 'center';
+                el.style.justifyContent = 'center';
+                el.innerHTML = '<i class="bi bi-camera-fill" style="color: white; font-size: 14px;"></i>';
+
+                const popupContent = `
+                    <div style="color: #0f172a; font-family: sans-serif; padding: 4px;">
+                        <h6 style="font-weight: bold; margin-bottom: 4px; color: #059669;">
+                            <i class="bi bi-geo-alt-fill"></i> Incident Media Capture Point
+                        </h6>
+                        <div style="font-size: 12px; margin-bottom: 2px;"><strong>File:</strong> ${exifData.filename || 'Evidence Media'}</div>
+                        <div style="font-size: 12px; margin-bottom: 2px;"><strong>Coords:</strong> ${exifData.latitude}°, ${exifData.longitude}°</div>
+                        ${exifData.timestamp ? `<div style="font-size: 12px; margin-bottom: 2px;"><strong>Timestamp:</strong> ${exifData.timestamp}</div>` : ''}
+                        ${exifData.model ? `<div style="font-size: 12px;"><strong>Device:</strong> ${exifData.make} ${exifData.model}</div>` : ''}
+                    </div>
+                `;
+
+                new mapboxgl.Marker(el)
+                    .setLngLat([exifData.longitude, exifData.latitude])
+                    .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(popupContent))
+                    .addTo(map)
+                    .togglePopup();
+            }
+        });
+    </script>
+</body>
+</html>

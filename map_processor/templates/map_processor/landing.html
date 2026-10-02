@@ -95,13 +95,15 @@
      <i class="bi bi-patch-check-fill" style="color: #10b981; font-size: 20px;"></i>
      <span style="color: #065f46; font-weight: 600; font-size: 15px;">Access Verified: {{ verified_email }}</span>
      <a href="{% url 'map_processor:logout_access' %}" style="color: #64748b; font-size: 12px; text-decoration: underline; margin-left: 6px;">(Logout)</a>
-   </div>
    <div style="display: flex; justify-content: center; gap: 15px; flex-wrap: wrap;">
-     <a href="{% url 'map_processor:upload' %}" class="btn" style="font-size: 16px; padding: 12px 36px; background-color: #2c7ac2; color: #ffffff;">
-       <i class="bi bi-cloud-arrow-up-fill"></i> Upload &amp; Georeference Map
+     <a href="{% url 'map_processor:upload' %}" class="btn" style="font-size: 16px; padding: 12px 30px; background-color: #2c7ac2; color: #ffffff;">
+       <i class="bi bi-cloud-arrow-up-fill"></i> 1. Survey Map Sheets (PDF)
      </a>
-     <a href="{% url 'map_processor:dashboard_latest' %}" class="btn" style="font-size: 16px; padding: 12px 28px; background-color: #3c4a69; color: #ffffff;">
-       <i class="bi bi-map-fill"></i> Open Map Dashboard
+     <a href="{% url 'map_processor:media_tracker' %}" class="btn" style="font-size: 16px; padding: 12px 30px; background-color: #059669; color: #ffffff;">
+       <i class="bi bi-camera-video-fill"></i> 2. Media GPS Tracker (Exif)
+     </a>
+     <a href="{% url 'map_processor:dashboard_latest' %}" class="btn" style="font-size: 16px; padding: 12px 24px; background-color: #3c4a69; color: #ffffff;">
+       <i class="bi bi-map-fill"></i> Map Dashboard
      </a>
    </div>
  {% else %}

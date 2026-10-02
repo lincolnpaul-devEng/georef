@@ -88,3 +88,54 @@ class MapUploadForm(forms.ModelForm):
             if utm_zone < 1 or utm_zone > 60:
                 raise forms.ValidationError("UTM Zone must be between 1 and 60.")
         return utm_zone
+
+
+class MediaEvidenceUploadForm(forms.Form):
+    """
+    Form for uploading citizen incident photos and field video footage
+    to extract embedded Exif GPS metadata and pinpoint exact capture location.
+    """
+    MAX_MEDIA_SIZE_MB = 100
+
+    title = forms.CharField(
+        max_length=255,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Incident Reference / Description (e.g., Field Report #402)'
+        })
+    )
+    media_file = forms.FileField(
+        required=True,
+        widget=forms.FileInput(attrs={
+            'class': 'form-control-file',
+            'accept': 'image/jpeg,image/png,image/heic,image/tiff,video/mp4,video/quicktime,video/x-matroska,.jpg,.jpeg,.png,.heic,.tif,.tiff,.mp4,.mov,.mkv'
+        })
+    )
+
+    def clean_title(self):
+        title = self.cleaned_data.get('title', '')
+        if title:
+            title = strip_tags(title).strip()
+            title = re.sub(r'[\x00-\x1f\x7f]', '', title)
+        return title
+
+    def clean_media_file(self):
+        uploaded_file = self.cleaned_data.get('media_file')
+        if uploaded_file:
+            # 1. Size limit (100MB for video / photo files)
+            if uploaded_file.size > self.MAX_MEDIA_SIZE_MB * 1024 * 1024:
+                raise forms.ValidationError(
+                    f"Media file exceeds {self.MAX_MEDIA_SIZE_MB}MB limit."
+                )
+
+            # 2. Extension check
+            ext = uploaded_file.name.lower().split('.')[-1]
+            valid_exts = ['jpg', 'jpeg', 'png', 'heic', 'tif', 'tiff', 'mp4', 'mov', 'mkv', 'avi']
+            if ext not in valid_exts:
+                raise forms.ValidationError(
+                    f"Unsupported media format (.{ext}). Supported: JPG, PNG, HEIC, TIFF, MP4, MOV, MKV."
+                )
+
+        return uploaded_file
+

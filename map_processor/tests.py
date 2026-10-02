@@ -7,13 +7,16 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.conf import settings
 
 from .models import ProcessedMap, UserAccess
-from .forms import MapUploadForm
+from .forms import MapUploadForm, MediaEvidenceUploadForm
 from .services import (
     DATUM_PROJECTIONS,
     convert_utm_to_wgs84,
     check_or_request_supabase_access,
-    CartographyHarness
+    CartographyHarness,
+    extract_media_exif_metadata,
+    get_exiftool_executable_path
 )
+
 
 
 class ModelTestCase(TestCase):
@@ -320,4 +323,115 @@ class CartographyHarnessTestCase(TestCase):
         metrics = result["metrics"]
         self.assertGreater(metrics["area_hectares"], 0)
         self.assertGreater(metrics["area_acres"], 0)
+
+
+class ExifExtractionTestCase(TestCase):
+    """
+    Tests ExifTool CLI and Pillow fallback GPS metadata extraction from field photos/videos.
+    """
+    def test_exiftool_path_resolution(self):
+        path = get_exiftool_executable_path()
+        # Should detect /home/lincoln/georef/exiftool/exiftool or system binary
+        self.assertIsNotNone(path)
+
+    def test_extract_exif_nonexistent_file(self):
+        res = extract_media_exif_metadata("/tmp/nonexistent_file_12345.jpg")
+        self.assertFalse(res["has_gps"])
+        self.assertIsNone(res["latitude"])
+        self.assertIsNone(res["longitude"])
+
+    @patch('subprocess.run')
+    def test_extract_exif_with_mocked_exiftool_gps(self, mock_subproc):
+        mock_output = json.dumps([{
+            "SourceFile": "incident_photo.jpg",
+            "MIMEType": "image/jpeg",
+            "Make": "Sony",
+            "Model": "Alpha 7R",
+            "DateTimeOriginal": "2026:10:02 10:45:00",
+            "GPSLatitude": -1.2921,
+            "GPSLongitude": 36.8219,
+            "GPSAltitude": 1680.5,
+            "GPSImgDirection": 145.2
+        }])
+        mock_subproc.return_value.returncode = 0
+        mock_subproc.return_value.stdout = mock_output
+
+        # Create a temp dummy file
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.jpg') as tmp:
+            tmp.write(b"dummy image data")
+            tmp.flush()
+            result = extract_media_exif_metadata(tmp.name)
+
+        self.assertTrue(result["has_gps"])
+        self.assertEqual(result["latitude"], -1.2921)
+        self.assertEqual(result["longitude"], 36.8219)
+        self.assertEqual(result["altitude_m"], 1680.5)
+        self.assertEqual(result["heading_deg"], 145.2)
+        self.assertEqual(result["make"], "Sony")
+        self.assertEqual(result["model"], "Alpha 7R")
+
+
+class MediaEvidenceFormTestCase(TestCase):
+    """
+    Validates MediaEvidenceUploadForm security checks and format filtering.
+    """
+    def test_valid_photo_upload(self):
+        valid_jpg = SimpleUploadedFile("evidence.jpg", b"\xff\xd8\xff\xe0", content_type="image/jpeg")
+        form = MediaEvidenceUploadForm(
+            data={"title": "Field Report Incident 101"},
+            files={"media_file": valid_jpg}
+        )
+        self.assertTrue(form.is_valid())
+
+    def test_valid_video_upload(self):
+        valid_mp4 = SimpleUploadedFile("incident_drone.mp4", b"\x00\x00\x00\x20ftypisom", content_type="video/mp4")
+        form = MediaEvidenceUploadForm(
+            data={"title": "Drone Surveillance Recon"},
+            files={"media_file": valid_mp4}
+        )
+        self.assertTrue(form.is_valid())
+
+    def test_reject_unsupported_media_extension(self):
+        exe_file = SimpleUploadedFile("payload.exe", b"MZ\x90\x00", content_type="application/octet-stream")
+        form = MediaEvidenceUploadForm(
+            data={"title": "Malicious Payload"},
+            files={"media_file": exe_file}
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("media_file", form.errors)
+
+
+class MediaTrackerViewTestCase(TestCase):
+    """
+    Tests the field incident media GPS tracker routes and API endpoints.
+    """
+    def setUp(self):
+        self.client = Client()
+
+    def test_media_tracker_unverified_redirects(self):
+        response = self.client.get(reverse('map_processor:media_tracker'))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("#verify-access-section", response.url)
+
+    def test_media_tracker_accessible_when_verified(self):
+        with patch('map_processor.views.check_or_request_supabase_access', return_value=(True, "Access granted.", {})):
+            self.client.post(reverse('map_processor:verify_access'), {"email": "field_officer@gov.ke"})
+            response = self.client.get(reverse('map_processor:media_tracker'))
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "Field Incident &amp; Citizen Media GPS Tracker")
+            self.assertContains(response, "ExifTool")
+
+    def test_media_exif_api_post(self):
+        valid_jpg = SimpleUploadedFile("evidence_cam.jpg", b"\xff\xd8\xff\xe0", content_type="image/jpeg")
+        response = self.client.post(
+            reverse('map_processor:media_exif_api'),
+            {'media_file': valid_jpg}
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('has_gps', data)
+        self.assertIn('filename', data)
+        self.assertEqual(data['filename'], "evidence_cam.jpg")
+
 

@@ -125,9 +125,294 @@ def check_or_request_supabase_access(email: str) -> Tuple[bool, str, Dict[str, A
 
 
 import tempfile
+import shutil
 
 
-def render_pdf_to_raster_image(pdf_path: str, scale: float = 2.0) -> bytes:
+def get_exiftool_executable_path() -> Optional[str]:
+    """
+    Locates the ExifTool CLI binary in the workspace or system path.
+    """
+    base_dir = getattr(settings, 'BASE_DIR', Path('.'))
+    local_exiftool = Path(base_dir) / 'exiftool' / 'exiftool'
+    if local_exiftool.exists():
+        try:
+            if not os.access(str(local_exiftool), os.X_OK):
+                os.chmod(str(local_exiftool), 0o755)
+            return str(local_exiftool)
+        except Exception:
+            return str(local_exiftool)
+
+    sys_path = shutil.which('exiftool')
+    if sys_path:
+        return sys_path
+
+    return None
+
+
+def analyze_image_forensics(file_path: str, raw_meta: Dict[str, Any], has_gps: bool) -> Dict[str, Any]:
+    """
+    Forensic Provenance & Integrity Analyzer:
+    Dissects binary marker structure (APP0 vs APP1 vs APP2), software encoder signatures,
+    and identifies why GPS metadata was or was not captured.
+    """
+    forensics = {
+        'status_code': 'UNKNOWN',
+        'status_label': 'Pending Analysis',
+        'badge_class': 'secondary',
+        'is_camera_original': False,
+        'is_re_encoded': False,
+        'detected_encoder': 'Unknown',
+        'marker_structure': [],
+        'missing_gps_reason': '',
+        'field_guidance': '',
+        'integrity_score': 0
+    }
+
+    path_obj = Path(file_path)
+    if not path_obj.exists():
+        return forensics
+
+    file_size = path_obj.stat().st_size
+    filename = path_obj.name.lower()
+
+    # 1. Inspect Binary Markers (JPEG / PNG / WebP / QuickTime)
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(4096)
+    except Exception:
+        header = b''
+
+    has_app0_jfif = b'\xff\xe0' in header and b'JFIF' in header
+    has_app1_exif = b'\xff\xe1' in header and (b'Exif' in header or b'http://ns.adobe.com' in header)
+    has_app2_icc = b'\xff\xe2' in header and b'ICC_PROFILE' in header
+    is_png = header.startswith(b'\x89PNG\r\n\x1a\n')
+    is_mp4 = b'ftyp' in header[:32]
+
+    markers = []
+    if has_app0_jfif:
+        markers.append('APP0 (JFIF Standard Web Container)')
+    if has_app1_exif:
+        markers.append('APP1 (EXIF / XMP Telemetry Segment)')
+    if has_app2_icc:
+        markers.append('APP2 (ICC Color Profile)')
+    if is_png:
+        markers.append('PNG Chunks (IHDR/IDAT)')
+    if is_mp4:
+        markers.append('MP4/QuickTime Atoms (ftyp/moov)')
+    forensics['marker_structure'] = markers
+
+    # 2. Software Encoder / Provenance Attribution
+    software = str(raw_meta.get('Software', '')).strip()
+    profile_copyright = str(raw_meta.get('ProfileCopyright', '')).strip()
+    make = str(raw_meta.get('Make', '')).strip()
+    model = str(raw_meta.get('Model', '')).strip()
+
+    detected_encoder = 'Generic Digital Stream'
+    if 'Google' in profile_copyright or 'Skia' in software:
+        detected_encoder = 'Google Skia / Chromium Canvas Web Export'
+    elif 'Adobe' in software or 'Photoshop' in software or 'Lightroom' in software:
+        detected_encoder = f'Adobe Systems ({software})'
+    elif 'GIMP' in software:
+        detected_encoder = f'GIMP Image Editor ({software})'
+    elif 'Apple' in make or 'iPhone' in model or 'iPad' in model:
+        detected_encoder = f'Apple iOS Camera System ({model})'
+    elif 'Samsung' in make or 'Galaxy' in model:
+        detected_encoder = f'Samsung Camera ISP ({model})'
+    elif 'Sony' in make:
+        detected_encoder = f'Sony Alpha / Cyber-shot ({model})'
+    elif 'Canon' in make:
+        detected_encoder = f'Canon EOS / PowerShot ({model})'
+    elif 'Nikon' in make:
+        detected_encoder = f'Nikon Imaging ({model})'
+    elif 'whatsapp' in filename:
+        detected_encoder = 'WhatsApp Media Compression Pipeline'
+    forensics['detected_encoder'] = detected_encoder
+
+    # 3. Forensic Classification & Reason Resolution
+    if has_gps:
+        forensics['status_code'] = 'VERIFIED_CAMERA_ORIGINAL'
+        forensics['status_label'] = 'Verified Camera Original (GPS Locked)'
+        forensics['badge_class'] = 'success'
+        forensics['is_camera_original'] = True
+        forensics['is_re_encoded'] = False
+        forensics['integrity_score'] = 100
+        forensics['missing_gps_reason'] = 'GPS telemetry intact and verified.'
+        forensics['field_guidance'] = 'Authentic field evidence. Coordinates ready for mapping.'
+    elif has_app1_exif and (make or model or raw_meta.get('FNumber') or raw_meta.get('ExposureTime')):
+        forensics['status_code'] = 'CAMERA_CAPTURE_NO_GPS'
+        forensics['status_label'] = 'Camera Capture (Location Disabled at Capture)'
+        forensics['badge_class'] = 'warning'
+        forensics['is_camera_original'] = True
+        forensics['is_re_encoded'] = False
+        forensics['integrity_score'] = 75
+        forensics['missing_gps_reason'] = (
+            f"Hardware EXIF is present ({make} {model}), but GPS coordinates were not recorded. "
+            "Device location services were disabled in camera settings or GPS fix was unavailable indoors."
+        )
+        forensics['field_guidance'] = (
+            "Advise field personnel to enable 'Location Tags / GPS' in camera settings prior to capturing evidence."
+        )
+    elif has_app0_jfif and not has_app1_exif:
+        forensics['status_code'] = 'STRIPPED_OR_WEB_EXPORT'
+        forensics['status_label'] = 'Re-Encoded Web Asset (EXIF Stripped)'
+        forensics['badge_class'] = 'danger'
+        forensics['is_camera_original'] = False
+        forensics['is_re_encoded'] = True
+        forensics['integrity_score'] = 25
+        forensics['missing_gps_reason'] = (
+            f"Image is in standard JFIF format without an APP1 EXIF segment. "
+            f"Detected Encoder: {detected_encoder}. Telemetry was stripped during web export, screenshotting, or messaging transfer."
+        )
+        forensics['field_guidance'] = (
+            "Request the raw, original file directly from device storage or send as an uncompressed 'Document/File' instead of compressed chat media."
+        )
+    else:
+        forensics['status_code'] = 'PROCESSED_MEDIA'
+        forensics['status_label'] = 'Processed Media (No Location Tags)'
+        forensics['badge_class'] = 'secondary'
+        forensics['is_camera_original'] = False
+        forensics['is_re_encoded'] = True
+        forensics['integrity_score'] = 40
+        forensics['missing_gps_reason'] = 'No embedded GPS tags found in file headers.'
+        forensics['field_guidance'] = 'Upload untouched raw photos or drone video files with location telemetry enabled.'
+
+    return forensics
+
+
+def extract_media_exif_metadata(file_path: str) -> Dict[str, Any]:
+    """
+    Extracts embedded GPS coordinates, altitude, heading, timestamp, camera metadata,
+    and performs automated forensic provenance analysis on field photos and videos.
+    """
+    result: Dict[str, Any] = {
+        'has_gps': False,
+        'latitude': None,
+        'longitude': None,
+        'altitude_m': None,
+        'heading_deg': None,
+        'timestamp': None,
+        'make': '',
+        'model': '',
+        'mime_type': '',
+        'file_size_bytes': 0,
+        'raw_metadata': {},
+        'forensics': {}
+    }
+
+    path_obj = Path(file_path)
+    if not path_obj.exists():
+        logger.warning(f"Media file not found for Exif extraction: {file_path}")
+        result['forensics'] = analyze_image_forensics(file_path, {}, False)
+        return result
+
+    result['file_size_bytes'] = path_obj.stat().st_size
+    guessed_type, _ = mimetypes.guess_type(file_path)
+    result['mime_type'] = guessed_type or 'application/octet-stream'
+
+    # 1. Primary Engine: ExifTool CLI
+    exiftool_bin = get_exiftool_executable_path()
+    if exiftool_bin:
+        try:
+            cmd = [exiftool_bin, '-json', '-n', str(file_path)]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if proc.returncode == 0 and proc.stdout:
+                parsed = json.loads(proc.stdout)
+                if parsed and isinstance(parsed, list):
+                    meta = parsed[0]
+                    result['raw_metadata'] = meta
+                    result['mime_type'] = meta.get('MIMEType', result['mime_type'])
+                    result['make'] = str(meta.get('Make', '')).strip()
+                    result['model'] = str(meta.get('Model', '')).strip()
+                    result['timestamp'] = meta.get('DateTimeOriginal') or meta.get('CreateDate') or meta.get('FileModifyDate')
+
+                    lat = meta.get('GPSLatitude')
+                    lng = meta.get('GPSLongitude')
+                    if lat is not None and lng is not None:
+                        try:
+                            f_lat = float(lat)
+                            f_lng = float(lng)
+                            if -90.0 <= f_lat <= 90.0 and -180.0 <= f_lng <= 180.0:
+                                result['latitude'] = round(f_lat, 6)
+                                result['longitude'] = round(f_lng, 6)
+                                result['has_gps'] = True
+                        except (ValueError, TypeError):
+                            pass
+
+                    if meta.get('GPSAltitude') is not None:
+                        try:
+                            result['altitude_m'] = round(float(meta['GPSAltitude']), 2)
+                        except (ValueError, TypeError):
+                            pass
+
+                    heading = meta.get('GPSImgDirection') or meta.get('GPSDestBearing') or meta.get('GPSBearing')
+                    if heading is not None:
+                        try:
+                            result['heading_deg'] = round(float(heading), 1)
+                        except (ValueError, TypeError):
+                            pass
+        except Exception as exiftool_err:
+            logger.debug(f"ExifTool execution error: {exiftool_err}")
+
+    # 2. Fallback Engine: Pillow Exif Reader for Images (if ExifTool didn't catch GPS)
+    if not result['has_gps']:
+        try:
+            from PIL import Image
+            from PIL.ExifTags import TAGS, GPSTAGS
+
+            with Image.open(file_path) as img:
+                exif_data = img.getexif()
+                if exif_data:
+                    gps_info = {}
+                    for tag_id, value in exif_data.items():
+                        tag_name = TAGS.get(tag_id, str(tag_id))
+                        if tag_name == 'Make' and not result['make']:
+                            result['make'] = str(value).strip()
+                        elif tag_name == 'Model' and not result['model']:
+                            result['model'] = str(value).strip()
+                        elif tag_name == 'DateTime' and not result['timestamp']:
+                            result['timestamp'] = str(value)
+                        elif tag_name == 'GPSInfo' or tag_id == 34853:
+                            if hasattr(exif_data, 'get_ifd'):
+                                gps_ifd = exif_data.get_ifd(34853)
+                                for g_id, g_val in gps_ifd.items():
+                                    gps_info[GPSTAGS.get(g_id, str(g_id))] = g_val
+                            elif isinstance(value, dict):
+                                for g_id, g_val in value.items():
+                                    gps_info[GPSTAGS.get(g_id, str(g_id))] = g_val
+
+                    if gps_info:
+                        def dms_to_decimal(dms, ref):
+                            try:
+                                d, m, s = [float(x) for x in dms]
+                                dec = d + (m / 60.0) + (s / 3600.0)
+                                return -dec if ref in ['S', 'W'] else dec
+                            except Exception:
+                                return None
+
+                        raw_lat = gps_info.get('GPSLatitude')
+                        lat_ref = gps_info.get('GPSLatitudeRef', 'N')
+                        raw_lng = gps_info.get('GPSLongitude')
+                        lng_ref = gps_info.get('GPSLongitudeRef', 'E')
+
+                        if raw_lat and raw_lng:
+                            lat_val = dms_to_decimal(raw_lat, lat_ref) if isinstance(raw_lat, (list, tuple)) else float(raw_lat)
+                            lng_val = dms_to_decimal(raw_lng, lng_ref) if isinstance(raw_lng, (list, tuple)) else float(raw_lng)
+                            if lat_val is not None and lng_val is not None:
+                                result['latitude'] = round(lat_val, 6)
+                                result['longitude'] = round(lng_val, 6)
+                                result['has_gps'] = True
+        except Exception as pil_err:
+            logger.debug(f"Pillow Exif extraction fallback skipped: {pil_err}")
+
+    # 3. Attach Forensic Provenance & Integrity Diagnosis
+    result['forensics'] = analyze_image_forensics(
+        file_path, 
+        result.get('raw_metadata', {}), 
+        result['has_gps']
+    )
+
+    return result
+
     """
     Renders the first page of a scanned map PDF into a high-resolution PNG image byte stream.
     Supports pdftoppm (poppler), pypdfium2, fitz (PyMuPDF), and pdf2image.

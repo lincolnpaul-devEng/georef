@@ -7,8 +7,18 @@ from django.contrib import messages
 from django.conf import settings
 
 from .models import ProcessedMap, UserAccess
-from .forms import MapUploadForm
-from .services import process_map_georeferencing, check_or_request_supabase_access
+from .forms import MapUploadForm, MediaEvidenceUploadForm
+from .services import (
+    process_map_georeferencing, 
+    check_or_request_supabase_access,
+    extract_media_exif_metadata
+)
+import tempfile
+import os
+from pathlib import Path
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+
 
 logger = logging.getLogger(__name__)
 
@@ -349,3 +359,120 @@ def map_api_view(request, map_id):
         'transformed_data': map_obj.transformed_data,
         'created_at': map_obj.created_at.isoformat() if map_obj.created_at else None,
     })
+
+
+def media_tracker_view(request):
+    """
+    Dedicated view for Field Officials & Incident Reporting:
+    Uploads raw citizen photos or video evidence (JPG, PNG, HEIC, TIFF, MP4, MOV),
+    executes ExifTool to extract embedded GPS coordinates, altitude, heading, and camera metadata,
+    and visualizes exact incident pin on Mapbox Satellite tiles.
+    """
+    is_verified, verified_email = get_verified_user_status(request)
+    if not is_verified:
+        messages.warning(request, "Access restricted. Please verify your email access before tracking incident media.")
+        return redirect(f"{reverse('map_processor:landing')}#verify-access-section")
+
+    mapbox_token = getattr(settings, 'MAPBOX_ACCESS_TOKEN', '') or ''
+    exif_result = None
+    media_url = None
+    media_type = None
+    media_name = None
+
+    if request.method == 'POST':
+        form = MediaEvidenceUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            uploaded_file = form.cleaned_data['media_file']
+            title = form.cleaned_data.get('title') or uploaded_file.name
+            
+            # Save uploaded media file temporarily to extract Exif data
+            file_ext = Path(uploaded_file.name).suffix.lower()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                for chunk in uploaded_file.chunks():
+                    tmp.write(chunk)
+                tmp_path = tmp.name
+
+            try:
+                # 1. Execute ExifTool via services.py
+                exif_result = extract_media_exif_metadata(tmp_path)
+                exif_result['incident_title'] = title
+                exif_result['filename'] = uploaded_file.name
+
+                # 2. Persist media in media/incident_evidence/ for web preview
+                saved_path = default_storage.save(f"incident_evidence/{uploaded_file.name}", uploaded_file)
+                media_url = default_storage.url(saved_path)
+                media_name = uploaded_file.name
+                
+                mime = exif_result.get('mime_type', '')
+                if mime.startswith('video/'):
+                    media_type = 'video'
+                else:
+                    media_type = 'image'
+
+                if exif_result.get('has_gps'):
+                    messages.success(
+                        request, 
+                        f"GPS Location Extracted! Lat: {exif_result['latitude']}°, Lng: {exif_result['longitude']}° (Timestamp: {exif_result.get('timestamp', 'N/A')})"
+                    )
+                else:
+                    messages.warning(
+                        request, 
+                        f"No GPS metadata found in '{uploaded_file.name}'. The device may have had location tagging disabled or metadata stripped."
+                    )
+            except Exception as e:
+                logger.exception("Error extracting media Exif metadata")
+                messages.error(request, f"Error reading media metadata: {str(e)}")
+            finally:
+                # Cleanup temp file
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+        else:
+            messages.error(request, "Please select a valid image or video file.")
+    else:
+        form = MediaEvidenceUploadForm()
+
+    return render(request, 'map_processor/media_tracker.html', {
+        'form': form,
+        'exif_result': exif_result,
+        'exif_result_json': json.dumps(exif_result) if exif_result else None,
+        'media_url': media_url,
+        'media_type': media_type,
+        'media_name': media_name,
+        'mapbox_token': mapbox_token,
+        'verified_email': verified_email,
+        'is_verified': is_verified,
+    })
+
+
+def media_exif_api_view(request):
+    """
+    JSON API endpoint to inspect Exif metadata of an uploaded file in real-time.
+    """
+    if request.method != 'POST' or 'media_file' not in request.FILES:
+        return JsonResponse({'error': 'POST request with media_file required.'}, status=400)
+
+    uploaded_file = request.FILES['media_file']
+    file_ext = Path(uploaded_file.name).suffix.lower()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+        for chunk in uploaded_file.chunks():
+            tmp.write(chunk)
+        tmp_path = tmp.name
+
+    try:
+        exif_result = extract_media_exif_metadata(tmp_path)
+        exif_result['filename'] = uploaded_file.name
+        return JsonResponse(exif_result)
+    except Exception as e:
+        logger.exception("Exif API Error")
+        return JsonResponse({'error': str(e)}, status=500)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
