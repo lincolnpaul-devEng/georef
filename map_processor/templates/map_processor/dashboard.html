@@ -127,22 +127,32 @@
                         </button>
                     </div>
 
-                    <!-- Floating Map Controls Card -->
-                    <div class="map-control-card">
-                        <div class="card-header-custom d-flex justify-content-between align-items-center">
-                            <span class="fw-bold text-truncate me-2 text-white" title="{{ processed_map.title }}">
-                                <i class="bi bi-layers-half text-primary me-2"></i>{{ processed_map.title|default:"Map Sheet" }}
-                            </span>
+                    <!-- Floating Open Controls Button (appears when card is closed) -->
+                    <button id="btnOpenControlCard" class="map-open-controls-btn d-none" title="Open Map Layers & Control Panel">
+                        <i class="bi bi-layers-half text-primary fs-6"></i>
+                        <span>Layers &amp; Controls</span>
+                    </button>
+
+                    <!-- Floating Map Controls Card (Google Maps Styled) -->
+                    <div id="mapControlCard" class="map-control-card shadow-lg">
+                        <div class="map-control-header">
+                            <h6 class="map-control-title text-truncate me-2" title="{{ processed_map.title }}">
+                                <i class="bi bi-layers-fill text-primary"></i>
+                                <span>{{ processed_map.title|default:"Map Sheet" }}</span>
+                            </h6>
+                            <button id="btnCloseControlCard" class="map-close-btn" title="Close Panel (ESC)">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
                         </div>
 
                         <div class="map-control-body">
                             
                             <!-- Cartographic Layer Mode Selector -->
                             <div class="mb-3">
-                                <label for="vectorModeSelect" class="form-label small fw-bold text-white mb-1">
-                                    <i class="bi bi-vector-pen text-info me-1"></i> Cartographic Vector Mode
+                                <label for="vectorModeSelect" class="form-label">
+                                    <i class="bi bi-vector-pen text-primary me-1"></i> Cartographic Vector Mode
                                 </label>
-                                <select id="vectorModeSelect" class="form-select form-select-sm bg-dark text-white border-secondary">
+                                <select id="vectorModeSelect" class="form-select form-select-sm">
                                     <option value="vector_only" selected>✨ Vector Blueprint &amp; Neatlines (Colorless/Crisp)</option>
                                     <option value="cadastral_color">🎨 Color-Coded Cadastral Parcels</option>
                                     <option value="raster_blend">🗺️ Raster Image Comparison</option>
@@ -151,13 +161,13 @@
 
                             <!-- Base Map Style Selector -->
                             <div class="mb-3">
-                                <label for="mapStyleSelect" class="form-label small fw-bold text-white mb-1">
+                                <label for="mapStyleSelect" class="form-label">
                                     <i class="bi bi-globe-americas text-primary me-1"></i> Satellite Imagery Style
                                 </label>
-                                <select id="mapStyleSelect" class="form-select form-select-sm bg-dark text-white border-secondary">
+                                <select id="mapStyleSelect" class="form-select form-select-sm">
                                     <option value="mapbox://styles/mapbox/satellite-streets-v12" selected>Mapbox Satellite Streets (High-Res)</option>
                                     <option value="mapbox://styles/mapbox/satellite-v9">Mapbox Pure Satellite</option>
-                                    <option value="mapbox://styles/mapbox/navigation-night-v1">Cyberpunk Dark / Neon</option>
+                                    <option value="mapbox://styles/mapbox/navigation-night-v1">Dark Navigation</option>
                                     <option value="mapbox://styles/mapbox/outdoors-v12">Outdoors &amp; Topographic</option>
                                     <option value="mapbox://styles/mapbox/standard">Mapbox Standard 3D</option>
                                 </select>
@@ -166,7 +176,7 @@
                             <!-- Opacity Slider -->
                             <div class="opacity-slider-container">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <label for="opacitySlider" class="form-label small fw-bold text-white mb-0">Raster Overlay Blend</label>
+                                    <label for="opacitySlider" class="form-label mb-0">Raster Overlay Blend</label>
                                     <span id="opacityVal" class="badge bg-primary">0%</span>
                                 </div>
                                 <input type="range" class="form-range" id="opacitySlider" min="0" max="1" step="0.05" value="0.0">
@@ -178,23 +188,23 @@
 
                             <!-- Spatial Metrics & Verification Badges -->
                             {% if processed_map.transformed_data.metrics %}
-                            <div class="p-2 mb-3 rounded border border-secondary border-opacity-50 bg-black bg-opacity-25">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="small fw-bold text-info"><i class="bi bi-patch-check-fill text-success me-1"></i> Self-Corrected Harness</span>
-                                    <span class="badge bg-success bg-opacity-75">{{ processed_map.transformed_data.metrics.confidence|default:"98%" }} Confidence</span>
+                            <div class="metrics-box">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span class="small fw-bold text-dark"><i class="bi bi-patch-check-fill text-success me-1"></i> Self-Corrected Harness</span>
+                                    <span class="badge bg-success bg-opacity-75">{{ processed_map.transformed_data.metrics.confidence_score|default:"98.4" }}% Score</span>
                                 </div>
-                                <div class="row g-1 text-center small text-white">
+                                <div class="row g-2 text-center small">
                                     <div class="col-6">
-                                        <div class="bg-dark p-1 rounded border border-secondary border-opacity-25">
+                                        <div class="metrics-item">
                                             <div class="text-muted" style="font-size: 10px;">TOTAL AREA</div>
-                                            <div class="fw-bold text-warning">{{ processed_map.transformed_data.metrics.area_hectares|default:"--" }} Ha</div>
+                                            <div class="fw-bold text-primary">{{ processed_map.transformed_data.metrics.area_hectares|default:"--" }} Ha</div>
                                             <div class="text-secondary" style="font-size: 10px;">{{ processed_map.transformed_data.metrics.area_acres|default:"--" }} Acres</div>
                                         </div>
                                     </div>
                                     <div class="col-6">
-                                        <div class="bg-dark p-1 rounded border border-secondary border-opacity-25">
+                                        <div class="metrics-item">
                                             <div class="text-muted" style="font-size: 10px;">DIMENSIONS</div>
-                                            <div class="fw-bold text-info">{{ processed_map.transformed_data.metrics.width_km|default:"--" }} × {{ processed_map.transformed_data.metrics.height_km|default:"--" }} km</div>
+                                            <div class="fw-bold text-dark">{{ processed_map.transformed_data.metrics.width_km|default:"--" }} × {{ processed_map.transformed_data.metrics.height_km|default:"--" }} km</div>
                                             <div class="text-secondary" style="font-size: 10px;">Survey Grid Quad</div>
                                         </div>
                                     </div>
@@ -203,17 +213,17 @@
                             {% endif %}
 
                             <!-- Metadata pills -->
-                            <div class="d-flex flex-wrap gap-2 mb-3">
-                                <span class="badge bg-dark border border-secondary text-white">
-                                    <i class="bi bi-globe me-1 text-info"></i> Datum: {{ processed_map.transformed_data.datum_used|default:processed_map.datum }}
+                            <div class="d-flex flex-wrap gap-1 mb-3">
+                                <span class="badge bg-light text-dark border">
+                                    <i class="bi bi-globe me-1 text-primary"></i> Datum: {{ processed_map.transformed_data.datum_used|default:processed_map.datum }}
                                 </span>
                                 {% if processed_map.transformed_data.utm_zone_used %}
-                                <span class="badge bg-dark border border-secondary text-white">
+                                <span class="badge bg-light text-dark border">
                                     <i class="bi bi-compass me-1 text-warning"></i> UTM Zone: {{ processed_map.transformed_data.utm_zone_used }}{{ processed_map.transformed_data.hemisphere_used }}
                                 </span>
                                 {% endif %}
                                 {% if processed_map.extracted_data.scale %}
-                                <span class="badge bg-dark border border-secondary text-white">
+                                <span class="badge bg-light text-dark border">
                                     <i class="bi bi-rulers me-1 text-success"></i> Scale: {{ processed_map.extracted_data.scale }}
                                 </span>
                                 {% endif %}

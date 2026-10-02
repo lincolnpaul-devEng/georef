@@ -473,15 +473,39 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // GCP Table Row Click -> Smooth flyTo
-  const gcpRows = document.querySelectorAll(".gcp-row-clickable");
-  gcpRows.forEach(row => {
-    row.addEventListener("click", function () {
-      const lat = parseFloat(this.dataset.lat);
-      const lng = parseFloat(this.dataset.lng);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        window.flyToPoint(lng, lat);
+  // 9. Collapsible Map Control Card (Open / Close)
+  const mapControlCard = document.getElementById("mapControlCard");
+  const btnCloseControlCard = document.getElementById("btnCloseControlCard");
+  const btnOpenControlCard = document.getElementById("btnOpenControlCard");
+
+  function closeControlPanel() {
+    if (mapControlCard) mapControlCard.classList.add("collapsed");
+    if (btnOpenControlCard) btnOpenControlCard.classList.remove("d-none");
+    try { localStorage.setItem("georef_panel_closed", "true"); } catch (e) {}
+  }
+
+  function openControlPanel() {
+    if (mapControlCard) mapControlCard.classList.remove("collapsed");
+    if (btnOpenControlCard) btnOpenControlCard.classList.add("d-none");
+    try { localStorage.setItem("georef_panel_closed", "false"); } catch (e) {}
+  }
+
+  if (btnCloseControlCard) {
+    btnCloseControlCard.addEventListener("click", closeControlPanel);
+  }
+
+  if (btnOpenControlCard) {
+    btnOpenControlCard.addEventListener("click", openControlPanel);
+  }
+
+  // ESC shortcut to toggle panel
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+      if (mapControlCard && !mapControlCard.classList.contains("collapsed")) {
+        closeControlPanel();
+      } else if (mapControlCard) {
+        openControlPanel();
       }
-    });
+    }
   });
 });
